@@ -11,8 +11,10 @@ import {
 type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'recs' | 'social' | 'chat' | 'settings'
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
-type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; retained?: boolean; error?: string }
-type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain'
+type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; error?: string }
+type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'learning-demo-before'
+type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
+type DemoResults = { before: string; after: string; recalled: string[]; reflected: boolean }
 
 async function requestAgent(action: AgentAction, payload: Record<string, unknown> = {}): Promise<AgentResult> {
   const response = await fetch('/api/agent', {
@@ -96,7 +98,8 @@ export default function SeaDashboard() {
   const [posts, setPosts] = useState<Post[]>([])
   const [comments, setComments] = useState<string[]>([])
   const [memories, setMemories] = useState<string[]>([])
-  const [activity, setActivity] = useState(['Workspace ready · import history or load demo data'])
+  const [activity, setActivity] = useState<ActivityEntry[]>([{ id: 'workspace-ready', message: 'Workspace ready · import history or load demo data', timestamp: new Date().toISOString(), operation: 'WORKSPACE', status: 'success' }])
+  const [demoResults, setDemoResults] = useState<DemoResults | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
   const [csvOpen, setCsvOpen] = useState(false)
   const [csv, setCsv] = useState('')
@@ -148,8 +151,17 @@ export default function SeaDashboard() {
     }).sort((left, right) => right.average - left.average)[0]?.label ?? '—'
   }, [posts])
 
-  function log(message: string) {
-    setActivity((items) => [message, ...items].slice(0, 30))
+  function log(message: string, status: ActivityEntry['status'] = 'success', evidence?: { details?: string; memoryCount?: number }) {
+    const match = message.match(/Hindsight (RETAIN|RECALL|REFLECT)|Groq LLM/i)
+    const operation = match?.[1]?.toUpperCase() ?? (message.match(/Groq LLM/i) ? 'GROQ' : 'AGENT')
+    setActivity((items) => [{
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      message,
+      timestamp: new Date().toISOString(),
+      operation,
+      status,
+      ...evidence,
+    }, ...items].slice(0, 30))
   }
   function notify(message: string) {
     setToast(message)
@@ -159,13 +171,13 @@ export default function SeaDashboard() {
     return { posts: posts.slice(0, 50).map((post) => ({ ...post, hour: post.hour >= 0 ? post.hour : null })), comments: comments.slice(0, 30), audience: { topTopics: topics.slice(0, 6), positiveCommentRate: positiveRate, bestPostingWindow: bestTime } }
   }
   async function retainLearning(memory: string, description: string) {
-    log('Hindsight RETAIN · sending audience learning')
+    log('Hindsight RETAIN · sending audience learning', 'pending')
     try {
       await requestAgent('retain', { memory })
-      log(`Hindsight RETAIN · ${description} stored in the social-media-agent bank`)
+      log(`Hindsight RETAIN · ${description} stored in the social-media-agent bank`, 'success', { details: memory.slice(0, 900) })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Hindsight could not store this learning.'
-      log(`Hindsight RETAIN failed · ${message}`)
+      log(`Hindsight RETAIN failed · ${message}`, 'error', { details: memory.slice(0, 500) })
       notify(message)
     }
   }
@@ -310,25 +322,56 @@ export default function SeaDashboard() {
     if (pending) return
     setPending('recommendation')
     setRecommendation('')
-    log('Hindsight RECALL · retrieving historical evidence for a recommendation')
+    log('Hindsight RECALL · retrieving historical evidence for a recommendation', 'pending')
     try {
       const result = await requestAgent('recommendation', { question: 'What should I post next?', context: currentContext() })
       setRecommendation(result.text ?? '')
       setMemories(result.memories ?? [])
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
-      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience')
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
       log('Groq LLM · generated a memory-grounded recommendation')
       notify('Recommendation generated from Hindsight and your post history')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Recommendation generation failed. Try again.'
-      log(`Recommendation failed · ${message}`)
+      log(`Recommendation failed · ${message}`, 'error')
+      notify(message)
+    } finally {
+      setPending(null)
+    }
+  }
+  async function runLearningDemo() {
+    if (pending) return
+    const question = 'What should I post next for my audience, and why?'
+    const demoPosts = makeSamplePosts()
+    setPending('learning-demo-before')
+    setDemoResults(null)
+    setMemories([])
+    log('Memory Learning Demo · generating baseline before Hindsight learning', 'pending')
+    try {
+      const before = await requestAgent('learning-demo-before', { question, context: { source: 'learning-demo baseline; no historical posts or comments provided' } })
+      log('Groq LLM · generated baseline with no Hindsight Recall', 'success', { details: before.text })
+      log('Hindsight RETAIN · storing sample engagement history', 'pending')
+      const learning = `Illustrative Memory Learning Demo dataset (sample data, not real account analytics). Historical posts: ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic/format/time engagement and audience interests/questions from the supplied records. Do not claim these are real account results.`
+      await requestAgent('retain', { memory: learning })
+      log('Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
+      log('Hindsight RECALL · retrieving the newly stored audience history', 'pending')
+      const after = await requestAgent('recommendation', { question, context: { source: 'learning-demo follow-up; base recommendation on Hindsight memories retrieved for this same question' } })
+      setMemories(after.memories ?? [])
+      log(`Hindsight RECALL · ${after.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: after.memories?.length ?? 0, details: after.memories?.slice(0, 3).join(' · ') || 'No relevant memories were returned; Hindsight indexing or bank contents may need attention.' })
+      if (after.reflected) log('Hindsight REFLECT · reasoned over retained sample history', 'success', { details: after.reflection || 'Hindsight reflection completed.' })
+      log('Groq LLM · generated the follow-up recommendation from retrieved memory', 'success', { details: after.text })
+      setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories ?? [], reflected: Boolean(after.reflected) })
+      notify(after.memories?.length ? 'Memory Learning Demo complete · Hindsight memories retrieved' : 'Demo complete · Hindsight returned no memories; see activity for details')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The memory-learning demo could not finish.'
+      log(`Memory Learning Demo failed · ${message}`, 'error')
       notify(message)
     } finally {
       setPending(null)
     }
   }
   function clearData() {
-    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setActivity(['Workspace session cleared · Hindsight long-term memories retained']); notify('Workspace session cleared')
+    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setDemoResults(null); log('Workspace session cleared · Hindsight long-term memories retained') ; notify('Workspace session cleared')
   }
 
   return (
@@ -352,7 +395,7 @@ export default function SeaDashboard() {
         </header>
 
         <main className="sea-main" key={page}>
-          {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} onDemo={loadDemo} onNavigate={setPage} />}
+          {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} demoResults={demoResults} demoRunning={pending === 'learning-demo-before'} onRunLearningDemo={runLearningDemo} onDemo={loadDemo} onNavigate={setPage} />}
           {page === 'post' && <PostAnalyzer analysis={analysis} analysisLoading={pending === 'analysis'} onAnalyze={analyzePost} />}
           {page === 'comments' && <CommentAnalyzer comments={comments} analysis={commentAnalysis} insight={commentInsight} isAnalyzing={pending === 'comment-analysis'} memories={memories} onAnalyze={analyzeComments} />}
           {page === 'content' && <ContentGenerator draft={draft} saved={savedDrafts} showSaved={showSaved} isGenerating={pending === 'content'} memories={memories} onToggleSaved={() => setShowSaved(!showSaved)} onGenerate={generateContent} onSave={saveDraft} onCopy={() => { void navigator.clipboard?.writeText(draft); notify('Draft copied to clipboard') }} />}
@@ -364,11 +407,14 @@ export default function SeaDashboard() {
         </main>
       </div>
 
-      <section className={`activity-dock ${activityOpen ? 'activity-expanded' : ''}`} aria-label="Agent activity">
+      <section className={`activity-dock ${activityOpen ? 'activity-expanded' : ''}`} aria-label="Hindsight Memory Activity">
         <button className="activity-heading" onClick={() => setActivityOpen(!activityOpen)} aria-expanded={activityOpen}>
-          <span className="activity-prompt">&gt;_</span><span className="activity-label">AGENT ACTIVITY</span><ArrowRight className="activity-chevron-right" /><span className="activity-latest">{activity[0] ?? 'No activity yet'}</span>{activityOpen ? <ChevronDown /> : <ChevronUp />}
+          <span className="activity-prompt">&gt;_</span><span className="activity-label">HINDSIGHT MEMORY ACTIVITY</span><ArrowRight className="activity-chevron-right" /><span className="activity-latest">{activity[0]?.message ?? 'No activity yet'}</span>{activityOpen ? <ChevronDown /> : <ChevronUp />}
         </button>
-        {activityOpen && <div className="activity-list">{activity.map((line, index) => <div className="activity-line" key={`${line}-${index}`}><Check /> <span>{line}</span><time>{index === 0 ? 'just now' : `${index + 1}m ago`}</time></div>)}</div>}
+        {activityOpen && <div className="activity-list">{activity.map((entry) => <article className={`activity-entry activity-${entry.status}`} key={entry.id}>
+          <div className="activity-entry-heading"><span className="activity-operation">{entry.operation}</span><span className="activity-status">{entry.status}</span>{typeof entry.memoryCount === 'number' && <span className="activity-count">{entry.memoryCount} memories</span>}<time dateTime={entry.timestamp} title={new Date(entry.timestamp).toLocaleString()}>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time></div>
+          <p>{entry.message}</p>{entry.details && <details><summary>Evidence / operation details</summary><p>{entry.details}</p></details>}
+        </article>)}</div>}
       </section>
 
       {csvOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCsvOpen(false) }}>
@@ -392,18 +438,21 @@ function Eyebrow({ children }: { children: React.ReactNode }) { return <div clas
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) { return <section className={`panel ${className}`}>{children}</section> }
 function EmptyState({ icon: Icon, title, children }: { icon: typeof Bot; title: string; children: React.ReactNode }) { return <div className="empty-state"><Icon /><strong>{title}</strong><p>{children}</p></div> }
 
-function Dashboard({ posts, comments, topics, positiveRate, bestTime, onDemo, onNavigate }: { posts: Post[]; comments: string[]; topics: { topic: string; count: number; total: number; rate: number }[]; positiveRate: number; bestTime: string; onDemo: () => void; onNavigate: (page: PageId) => void }) {
+function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResults, demoRunning, onRunLearningDemo, onDemo, onNavigate }: { posts: Post[]; comments: string[]; topics: { topic: string; count: number; total: number; rate: number }[]; positiveRate: number; bestTime: string; demoResults: DemoResults | null; demoRunning: boolean; onRunLearningDemo: () => void; onDemo: () => void; onNavigate: (page: PageId) => void }) {
   const totalEngagement = posts.reduce((sum, post) => sum + post.likes + post.comments + post.shares + post.saves, 0)
   const avgRate = posts.length ? (posts.reduce((sum, post) => sum + post.likes, 0) / posts.length / 100).toFixed(2) : '0.00'
   return <>
     <PageTitle>Dashboard <button className="button-secondary heading-action" onClick={onDemo}><Sparkles /> Load demo data</button></PageTitle>
-    <div className="stat-grid">
-      <Stat label="TOTAL POSTS" value={posts.length} hint="Historical posts learned" icon={BriefcaseBusiness} />
-      <Stat label="AVG ENGAGEMENT" value={`${avgRate}%`} hint="Likes per post" icon={Gauge} />
-      <Stat label="TOTAL ENGAGEMENT" value={totalEngagement.toLocaleString()} hint="Likes, comments, shares & saves" icon={ArrowUpRight} />
-      <Stat label="AUDIENCE SENTIMENT" value={`${positiveRate}%`} hint={`${comments.length} comments analyzed`} icon={MessageSquareText} />
-    </div>
-    <div className="dashboard-grid">
+  <div className="stat-grid">
+  <Stat label="TOTAL POSTS" value={posts.length} hint="Historical posts learned" icon={BriefcaseBusiness} />
+  <Stat label="AVG ENGAGEMENT" value={`${avgRate}%`} hint="Likes per post" icon={Gauge} />
+  <Stat label="TOTAL ENGAGEMENT" value={totalEngagement.toLocaleString()} hint="Likes, comments, shares & saves" icon={ArrowUpRight} />
+  <Stat label="AUDIENCE SENTIMENT" value={`${positiveRate}%`} hint={`${comments.length} comments analyzed`} icon={MessageSquareText} />
+  </div>
+  <Panel className="learning-demo-panel"><div className="panel-heading"><div><Eyebrow>REAL HINDSIGHT FLOW</Eyebrow><h2>Memory Learning Demo</h2><p className="muted">Ask the same question before learning, store sample history, then ask again using real Hindsight Recall and Reflect.</p></div><button className="button-primary" onClick={onRunLearningDemo} disabled={demoRunning}>{demoRunning ? 'Running memory flow…' : 'Run learning demo'}</button></div>
+  <div className="learning-demo-grid"><section><Eyebrow>BEFORE LEARNING · GROQ ONLY</Eyebrow><p>{demoResults?.before ?? 'The baseline uses the same recommendation question without Hindsight memories or sample post data.'}</p></section><section><Eyebrow>AFTER LEARNING · HINDSIGHT + GROQ</Eyebrow><p>{demoResults?.after ?? 'After you run the demo, real retained sample history is recalled and reflected on before this recommendation is generated.'}</p>{demoResults && <small>{demoResults.recalled.length} memories recalled · {demoResults.reflected ? 'reflection completed' : 'no reflection returned'}</small>}</section></div></Panel>
+  <div className="dashboard-grid">
+
       <Panel className="performance-panel"><div className="panel-heading"><div><Eyebrow>PERFORMANCE</Eyebrow><h2>Engagement by topic</h2></div><button className="text-action" onClick={() => onNavigate('knowledge')}>View insights <ArrowUpRight /></button></div>
         {topics.length ? <div className="topic-bars">{topics.slice(0, 5).map((topic, index) => <div className="topic-bar-row" key={topic.topic}><div className="topic-bar-label"><span>{topic.topic}</span><small>{topic.count} posts</small><b>{topic.rate.toFixed(2)}%</b></div><div className="meter"><span style={{ width: `${Math.max(10, topic.total / (topics[0]?.total || 1) * 100)}%` }} /></div>{index === 0 && <div className="topic-caption">Your audience saves practical, step-by-step content.</div>}</div>)}</div> : <EmptyState icon={FileSearch} title="No posts yet">Import a CSV to begin learning from your content.</EmptyState>}
       </Panel>
