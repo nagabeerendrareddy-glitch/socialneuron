@@ -152,16 +152,21 @@ export default function SeaDashboard() {
   }, [posts])
 
   function log(message: string, status: ActivityEntry['status'] = 'success', evidence?: { details?: string; memoryCount?: number }) {
-    const match = message.match(/Hindsight (RETAIN|RECALL|REFLECT)|Groq LLM/i)
-    const operation = match?.[1]?.toUpperCase() ?? (message.match(/Groq LLM/i) ? 'GROQ' : 'AGENT')
+    const hindsightOperation = message.match(/Hindsight (RETAIN|RECALL|REFLECT)/i)?.[1]
+    const operation = hindsightOperation?.toUpperCase() ?? (/Groq LLM/i.test(message) ? 'GROQ' : 'AGENT')
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     setActivity((items) => [{
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id,
       message,
       timestamp: new Date().toISOString(),
       operation,
       status,
       ...evidence,
     }, ...items].slice(0, 30))
+    return id
+  }
+  function updateActivity(id: string, message: string, status: ActivityEntry['status'], evidence?: { details?: string; memoryCount?: number }) {
+    setActivity((items) => items.map((entry) => entry.id === id ? { ...entry, message, status, ...evidence } : entry))
   }
   function notify(message: string) {
     setToast(message)
@@ -171,13 +176,13 @@ export default function SeaDashboard() {
     return { posts: posts.slice(0, 50).map((post) => ({ ...post, hour: post.hour >= 0 ? post.hour : null })), comments: comments.slice(0, 30), audience: { topTopics: topics.slice(0, 6), positiveCommentRate: positiveRate, bestPostingWindow: bestTime } }
   }
   async function retainLearning(memory: string, description: string) {
-    log('Hindsight RETAIN · sending audience learning', 'pending')
+    const activityId = log('Hindsight RETAIN · sending audience learning', 'pending')
     try {
       await requestAgent('retain', { memory })
-      log(`Hindsight RETAIN · ${description} stored in the social-media-agent bank`, 'success', { details: memory.slice(0, 900) })
+      updateActivity(activityId, `Hindsight RETAIN · ${description} stored in the social-media-agent bank`, 'success', { details: memory.slice(0, 900) })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Hindsight could not store this learning.'
-      log(`Hindsight RETAIN failed · ${message}`, 'error', { details: memory.slice(0, 500) })
+      updateActivity(activityId, `Hindsight RETAIN failed · ${message}`, 'error', { details: memory.slice(0, 500) })
       notify(message)
     }
   }
@@ -282,15 +287,17 @@ export default function SeaDashboard() {
     const goal = String(values.get('goal') || 'Increase engagement')
     const brief = `Create a ${type} ${platform} post about ${topic} for ${audience}. Tone: ${tone}. Goal: ${goal}. Return only the finished post.`
     setPending('content')
-    log('Hindsight RECALL · retrieving audience preferences for content')
+    log('Hindsight RECALL · retrieving audience preferences for content', 'pending')
     try {
       const result = await requestAgent('content', { question: brief, context: currentContext() })
       setDraft(result.text ?? '')
       setMemories(result.memories ?? [])
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
-      log('Groq LLM · generated content using retrieved audience preferences')
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+      log('Groq LLM · generated content using retrieved audience preferences', 'success', { details: result.text })
     } catch (error) {
-      notify(error instanceof Error ? error.message : 'Content generation failed. Try again.')
+      const message = error instanceof Error ? error.message : 'Content generation failed. Try again.'
+      log(`Content generation failed · ${message}`, 'error')
+      notify(message)
     } finally {
       setPending(null)
     }
@@ -302,17 +309,17 @@ export default function SeaDashboard() {
     setChatInput('')
     setChat((items) => [...items, { role: 'user', text: query }])
     setPending('chat')
-    log('Hindsight RECALL · retrieving relevant audience history')
+    log('Hindsight RECALL · retrieving relevant audience history', 'pending')
     try {
       const result = await requestAgent('chat', { question: query, context: currentContext() })
       setMemories(result.memories ?? [])
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
-      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience')
-      log('Groq LLM · generated a memory-grounded response')
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
+      log('Groq LLM · generated a memory-grounded response', 'success', { details: result.text })
       setChat((items) => [...items, { role: 'agent', text: result.text ?? '' }])
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The agent request failed. Try again.'
-      log(`Agent request failed · ${message}`)
+      log(`Agent request failed · ${message}`, 'error')
       setChat((items) => [...items, { role: 'agent', text: message }])
     } finally {
       setPending(null)
@@ -346,25 +353,33 @@ export default function SeaDashboard() {
     setPending('learning-demo-before')
     setDemoResults(null)
     setMemories([])
-    log('Memory Learning Demo · generating baseline before Hindsight learning', 'pending')
+    let pendingActivityId: string | undefined
+    let pendingOperation = 'Groq LLM'
     try {
+      pendingActivityId = log('Groq LLM · generating baseline with no Hindsight history', 'pending')
       const before = await requestAgent('learning-demo-before', { question, context: { source: 'learning-demo baseline; no historical posts or comments provided' } })
-      log('Groq LLM · generated baseline with no Hindsight Recall', 'success', { details: before.text })
-      log('Hindsight RETAIN · storing sample engagement history', 'pending')
+      updateActivity(pendingActivityId, 'Groq LLM · generated baseline with no Hindsight Recall', 'success', { details: before.text })
+      pendingActivityId = undefined
       const learning = `Illustrative Memory Learning Demo dataset (sample data, not real account analytics). Historical posts: ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic/format/time engagement and audience interests/questions from the supplied records. Do not claim these are real account results.`
+      pendingOperation = 'Hindsight RETAIN'
+      pendingActivityId = log('Hindsight RETAIN · storing sample engagement history', 'pending')
       await requestAgent('retain', { memory: learning })
-      log('Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
-      log('Hindsight RECALL · retrieving the newly stored audience history', 'pending')
+      updateActivity(pendingActivityId, 'Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
+      pendingActivityId = undefined
+      pendingOperation = 'Hindsight RECALL / REFLECT'
+      pendingActivityId = log('Hindsight RECALL · retrieving the newly stored audience history', 'pending')
       const after = await requestAgent('recommendation', { question, context: { source: 'learning-demo follow-up; base recommendation on Hindsight memories retrieved for this same question' } })
       setMemories(after.memories ?? [])
-      log(`Hindsight RECALL · ${after.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: after.memories?.length ?? 0, details: after.memories?.slice(0, 3).join(' · ') || 'No relevant memories were returned; Hindsight indexing or bank contents may need attention.' })
+      updateActivity(pendingActivityId, `Hindsight RECALL · ${after.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: after.memories?.length ?? 0, details: after.memories?.slice(0, 3).join(' · ') || 'No relevant memories were returned; Hindsight indexing or bank contents may need attention.' })
+      pendingActivityId = undefined
       if (after.reflected) log('Hindsight REFLECT · reasoned over retained sample history', 'success', { details: after.reflection || 'Hindsight reflection completed.' })
       log('Groq LLM · generated the follow-up recommendation from retrieved memory', 'success', { details: after.text })
       setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories ?? [], reflected: Boolean(after.reflected) })
       notify(after.memories?.length ? 'Memory Learning Demo complete · Hindsight memories retrieved' : 'Demo complete · Hindsight returned no memories; see activity for details')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The memory-learning demo could not finish.'
-      log(`Memory Learning Demo failed · ${message}`, 'error')
+      if (pendingActivityId) updateActivity(pendingActivityId, `${pendingOperation} failed · ${message}`, 'error')
+      log(`Memory Learning Demo stopped · ${message}`, 'error')
       notify(message)
     } finally {
       setPending(null)
@@ -389,7 +404,7 @@ export default function SeaDashboard() {
       <div className="sea-workspace">
         <header className="sea-topbar">
           <button className="brand-switch" onClick={() => notify('Tech Innovators Co. workspace')} aria-label="Current workspace: Tech Innovators Co.">Tech Innovators Co. <ChevronDown /></button>
-          <div className="memory-badge"><span className="memory-dot" /><span className="memory-name">HINDSIGHT CLOUD</span><span className="memory-engine"><b>{memories.length}</b> RECALLS</span></div>
+          <div className="memory-badge"><span className="memory-dot" /><span className="memory-name">HINDSIGHT CLOUD</span><span className="memory-engine"><b>{activity.filter((entry) => entry.operation === 'RECALL' && entry.status === 'success').length}</b> RECALLS</span></div>
           <div className="top-spacer" />
           <button className="button-primary import-top" onClick={() => { setCsvOpen(true); setCsvStatus('') }}><Upload /> <span>Import CSV</span></button>
         </header>
@@ -543,7 +558,7 @@ function AgentChat({ messages, input, setInput, isSending, onSend }: { messages:
   const suggestions = ['What should I post next?', 'What questions does my audience ask most?', 'Why do my best posts perform well?', 'Write a LinkedIn post about AI automation']
   return <><PageTitle>Agent Chat</PageTitle><section className="chat-card"><div className="chat-intro"><div className="chat-bot-icon"><Bot /></div><div><h2>Ask your audience anything.</h2><p>The agent checks Hindsight first and identifies when historical evidence is limited.</p></div></div>
     {!messages.length && <div className="suggestion-grid">{suggestions.map((suggestion) => <button className="suggestion-chip" key={suggestion} disabled={isSending} onClick={() => onSend(suggestion)}>{suggestion}<ArrowUpRight /></button>)}</div>}
-    {!!messages.length && <div className="chat-transcript" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}><div className="chat-message-icon">{message.role === 'agent' ? <Bot /> : 'Y'}</div><p>{message.text}</p></div>)}{isSending && <p className="chat-status" role="status">Retrieving Hindsight memory and asking Groq…</p>}</div>}
+    {!!messages.length && <div className="chat-transcript" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}><div className="chat-message-icon">{message.role === 'agent' ? <Bot /> : 'Y'}</div><p>{message.text}</p></div>)}{isSending && <p className="chat-status" role="status">Recalling Hindsight memory and asking Groq…</p>}</div>}
     <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); onSend() }}><label className="visually-hidden" htmlFor="agent-prompt">Ask the agent a question</label><input id="agent-prompt" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about your audience, content, or next post…" disabled={isSending} /><button className="button-primary send-button" type="submit" aria-label="Send message" disabled={isSending || !input.trim()}><Send /></button></form>
   </section></>
 }

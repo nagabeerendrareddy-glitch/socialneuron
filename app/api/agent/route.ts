@@ -61,6 +61,8 @@ function needsReflection(action: AgentAction, question: string) {
   return action === 'recommendation' || (action === 'chat' && /what should|recommend|why|perform|pattern|next|best time/i.test(question))
 }
 
+const GROQ_MODEL = 'openai/gpt-oss-20b'
+
 async function generateWithGroq(action: AgentAction, question: string, context: unknown, memories: string[], reflection: string) {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) throw new AgentRequestError('GROQ_API_KEY is not configured on the server.', 503)
@@ -80,7 +82,7 @@ async function generateWithGroq(action: AgentAction, question: string, context: 
 
   try {
     const { text } = await generateText({
-      model: provider.chatModel(process.env.GROQ_MODEL?.trim() || 'llama-3.3-70b-versatile'),
+      model: provider.chatModel(GROQ_MODEL),
       system: getSystemPrompt(action, memories, reflection),
       prompt,
       maxOutputTokens: action === 'content' ? 800 : 1100,
@@ -98,9 +100,9 @@ async function generateWithGroq(action: AgentAction, question: string, context: 
       throw new AgentRequestError('Groq rejected the configured API key. Check GROQ_API_KEY.', 502)
     }
     if (statusCode === 404) {
-      throw new AgentRequestError('Groq could not find the configured model. Check GROQ_MODEL.', 502)
+      throw new AgentRequestError(`Groq could not find model ${GROQ_MODEL}.`, 502)
     }
-    throw new AgentRequestError('Groq could not generate a response. Check GROQ_API_KEY and GROQ_MODEL, then retry.', 502)
+    throw new AgentRequestError('Groq could not generate a response. Check GROQ_API_KEY and retry.', 502)
   }
 }
 
