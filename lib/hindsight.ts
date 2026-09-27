@@ -19,9 +19,9 @@ function errorMessage(payload: unknown, fallback: string) {
   return fallback
 }
 
-async function request(path: string, body: JsonRecord) {
-  const apiKey = process.env.HINDSIGHT_API_KEY
-  if (!apiKey) throw new IntegrationError('HINDSIGHT_API_KEY is not configured on the server.', 503)
+async function request(path: string, body: JsonRecord, apiKeyOverride?: string) {
+  const apiKey = apiKeyOverride || process.env.HINDSIGHT_API_KEY
+  if (!apiKey) throw new IntegrationError('Add a Hindsight API key in Settings or configure the deployment key.', 503)
 
   let response: Response
   try {
@@ -43,7 +43,7 @@ async function request(path: string, body: JsonRecord) {
   if (!response.ok) {
     const status = response.status === 401 || response.status === 403 ? 503 : response.status === 404 ? 422 : 502
     const fallback = response.status === 401 || response.status === 403
-      ? 'Hindsight rejected the API credential. Confirm the rotated HINDSIGHT_API_KEY secret.'
+      ? 'Hindsight rejected the API key. Check the key in Settings.'
       : response.status === 404
         ? `Hindsight could not find bank "${HINDSIGHT_BANK_ID}". Check the bank ID and create the bank in Hindsight Cloud.`
         : `Hindsight request failed (HTTP ${response.status}).`
@@ -52,16 +52,16 @@ async function request(path: string, body: JsonRecord) {
   return payload
 }
 
-export function retainInHindsight(items: string[]) {
-  return request('/memories', { items: items.map((content) => ({ content })) })
+export function retainInHindsight(items: string[], apiKey?: string) {
+  return request('/memories', { items: items.map((content) => ({ content })) }, apiKey)
 }
 
-export function recallFromHindsight(query: string) {
-  return request('/memories/recall', { query, top_k: 10 })
+export function recallFromHindsight(query: string, apiKey?: string) {
+  return request('/memories/recall', { query, top_k: 10 }, apiKey)
 }
 
-export function reflectWithHindsight(query: string) {
-  return request('/reflect', { query, budget: 'mid' })
+export function reflectWithHindsight(query: string, apiKey?: string) {
+  return request('/reflect', { query, budget: 'mid' }, apiKey)
 }
 
 function collectText(value: unknown): string[] {

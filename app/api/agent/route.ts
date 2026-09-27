@@ -20,6 +20,19 @@ type AgentInput = {
   question?: string
   context?: unknown
   memory?: string
+  providerKeys?: unknown
+}
+
+type ProviderKeys = { groq?: string; hindsight?: string }
+
+function getProviderKeys(value: unknown): ProviderKeys {
+  if (!isRecord(value)) return {}
+  const groq = typeof value.groq === 'string' ? value.groq.trim() : ''
+  const hindsight = typeof value.hindsight === 'string' ? value.hindsight.trim() : ''
+  return {
+    ...(groq && groq.length <= 512 ? { groq } : {}),
+    ...(hindsight && hindsight.length <= 512 ? { hindsight } : {}),
+  }
 }
 
 class AgentRequestError extends Error {
@@ -63,9 +76,8 @@ function needsReflection(action: AgentAction, question: string) {
 
 const GROQ_MODEL = 'openai/gpt-oss-20b'
 
-async function generateWithGroq(action: AgentAction, question: string, context: unknown, memories: string[], reflection: string) {
-  const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) throw new AgentRequestError('GROQ_API_KEY is not configured on the server.', 503)
+async function generateWithGroq(action: AgentAction, question: string, context: unknown, memories: string[], reflection: string, apiKey: string) {
+  if (!apiKey) throw new AgentRequestError('Add a Groq API key in Settings or configure the deployment key.', 503)
 
   const provider = createOpenAICompatible({
     baseURL: 'https://api.groq.com/openai/v1',
@@ -97,12 +109,12 @@ async function generateWithGroq(action: AgentAction, question: string, context: 
     }
     const statusCode = isRecord(error) ? Number(error.statusCode) : 0
     if (statusCode === 401 || statusCode === 403) {
-      throw new AgentRequestError('Groq rejected the configured API key. Check GROQ_API_KEY.', 502)
+      throw new AgentRequestError('Groq rejected the API key. Check the key in Settings.', 502)
     }
     if (statusCode === 404) {
       throw new AgentRequestError(`Groq could not find model ${GROQ_MODEL}.`, 502)
     }
-    throw new AgentRequestError('Groq could not generate a response. Check GROQ_API_KEY and retry.', 502)
+    throw new AgentRequestError('Groq could not generate a response. Check the API key in Settings and retry.', 502)
   }
 }
 
@@ -125,29 +137,32 @@ export async function POST(request: Request) {
   }
 
   const question = typeof input.question === 'string' ? input.question.trim().slice(0, 4_000) : ''
+  const providerKeys = getProviderKeys(input.providerKeys)
+  const groqApiKey = providerKeys.groq || process.env.GROQ_API_KEY
+  const hindsightApiKey = providerKeys.hindsight || process.env.HINDSIGHT_API_KEY
   if (input.action !== 'retain' && !question) {
     return NextResponse.json({ error: 'Add a question or content brief first.' }, { status: 400 })
   }
 
-  if (input.action !== 'retain' && !process.env.GROQ_API_KEY) {
-    return NextResponse.json({ error: 'GROQ_API_KEY is not configured on the server.' }, { status: 503 })
+  if (input.action !== 'retain' && !groqApiKey) {
+    return NextResponse.json({ error: 'Add a Groq API key in Settings or configure the deployment key.' }, { status: 503 })
   }
 
   try {
     if (input.action === 'retain') {
       const memory = typeof input.memory === 'string' ? input.memory.trim().slice(0, 12_000) : ''
       if (!memory) return NextResponse.json({ error: 'Add a learning observation to retain.' }, { status: 400 })
-      await retainInHindsight([memory])
+      await retainInHindsight([memory], hindsightApiKey)
       return NextResponse.json({ retained: true })
     }
 
     const learningDemoBefore = input.action === 'learning-demo-before'
-    const memories = learningDemoBefore ? [] : extractMemories(await recallFromHindsight(question))
+    const memories = learningDemoBefore ? [] : extractMemories(await recallFromHindsight(question, hindsightApiKey))
     let reflection = ''
     const reflected = !learningDemoBefore && needsReflection(input.action, question)
-    if (reflected) reflection = extractReflection(await reflectWithHindsight(question)).slice(0, 8_000)
+    if (reflected) reflection = extractReflection(await reflectWithHindsight(question, hindsightApiKey)).slice(0, 8_000)
 
-    const text = await generateWithGroq(input.action, question, input.context, memories, reflection)
+    const text = await generateWithGroq(input.action, question, input.context, memories, reflection, groqApiKey || '')
     return NextResponse.json({ text, memories, reflected, reflection })
   } catch (error) {
     if (error instanceof IntegrationError) {
