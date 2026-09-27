@@ -1,4 +1,4 @@
-const HINDSIGHT_API_BASE = (process.env.HINDSIGHT_API_URL || 'https://api.hindsight.ai').replace(/\/$/, '')
+const HINDSIGHT_API_BASE = (process.env.HINDSIGHT_API_URL || 'https://api.hindsight.vectorize.io').replace(/\/$/, '')
 export const HINDSIGHT_BANK_ID = 'social-media-agent'
 
 type JsonRecord = Record<string, unknown>
@@ -57,11 +57,11 @@ export function retainInHindsight(items: string[]) {
 }
 
 export function recallFromHindsight(query: string) {
-  return request('/memories/recall', { query })
+  return request('/memories/recall', { query, top_k: 10 })
 }
 
 export function reflectWithHindsight(query: string) {
-  return request('/reflect', { query })
+  return request('/reflect', { query, budget: 'mid' })
 }
 
 function collectText(value: unknown): string[] {
@@ -82,7 +82,7 @@ export function extractMemories(payload: unknown) {
   return [...new Set(collectText(payload))].slice(0, 30)
 }
 
-export function extractReflection(payload: unknown) {
+export function extractReflection(payload: unknown): string {
   if (typeof payload === 'string') return payload
   if (!payload || typeof payload !== 'object') return ''
   const record = payload as JsonRecord
@@ -90,7 +90,7 @@ export function extractReflection(payload: unknown) {
     const value = record[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
     if (value && typeof value === 'object') {
-      const nested = extractReflection(value)
+      const nested: string = extractReflection(value)
       if (nested) return nested
     }
   }

@@ -11,6 +11,19 @@ import {
 type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'recs' | 'social' | 'chat' | 'settings'
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
+type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; retained?: boolean; error?: string }
+type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain'
+
+async function requestAgent(action: AgentAction, payload: Record<string, unknown> = {}): Promise<AgentResult> {
+  const response = await fetch('/api/agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
+  })
+  const result = await response.json().catch(() => ({})) as AgentResult
+  if (!response.ok) throw new Error(result.error || 'The agent request failed. Try again.')
+  return result
+}
 
 const navigation: { id: PageId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -40,12 +53,6 @@ const sampleComments = [
   'Saved for later, thank you!', 'What does the setup look like in practice?',
   'Would love a template for this', 'Please share more Python tips',
 ]
-const memorySeed = [
-  'Audience responds strongly to educational content.',
-  'AI Automation and AI Tools receive above-average engagement.',
-  'Tutorials perform 25% above average; evening posts perform 21% above average.',
-]
-
 function makeSamplePosts(): Post[] {
   const seeds = [
     ['AI Automation', 'Tutorial', 1460, 102, 188, 321, 18],
@@ -86,10 +93,10 @@ function parseCsvLine(line: string) {
 
 export default function SeaDashboard() {
   const [page, setPage] = useState<PageId>('dashboard')
-  const [posts, setPosts] = useState<Post[]>(makeSamplePosts)
-  const [comments, setComments] = useState(sampleComments)
-  const [memories, setMemories] = useState(memorySeed)
-  const [activity, setActivity] = useState(['Workspace ready · audience insights loaded', 'Imported 36 historical posts', 'Analyzed 28 audience comments'])
+  const [posts, setPosts] = useState<Post[]>([])
+  const [comments, setComments] = useState<string[]>([])
+  const [memories, setMemories] = useState<string[]>([])
+  const [activity, setActivity] = useState(['Workspace ready · import history or load demo data'])
   const [activityOpen, setActivityOpen] = useState(false)
   const [csvOpen, setCsvOpen] = useState(false)
   const [csv, setCsv] = useState('')
@@ -99,10 +106,13 @@ export default function SeaDashboard() {
   const [connected, setConnected] = useState<string[]>([])
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [commentAnalysis, setCommentAnalysis] = useState<string[] | null>(null)
+  const [commentInsight, setCommentInsight] = useState('')
   const [draft, setDraft] = useState('')
   const [savedDrafts, setSavedDrafts] = useState<string[]>([])
   const [showSaved, setShowSaved] = useState(false)
   const [toast, setToast] = useState('')
+  const [pending, setPending] = useState<AgentAction | null>(null)
+  const [recommendation, setRecommendation] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const topics = useMemo(() => {
@@ -121,7 +131,22 @@ export default function SeaDashboard() {
   }, [posts])
   const positiveRate = comments.length ? Math.round(comments.filter((comment) => sentiment(comment) === 'positive').length / comments.length * 100) : 0
   const bestTopic = topics[0]?.topic ?? 'AI Automation'
-  const bestTime = posts.length ? 'Evening' : '—'
+  const bestTime = useMemo(() => {
+    const windows = [
+      { label: 'Morning', start: 5, end: 11 },
+      { label: 'Afternoon', start: 11, end: 16 },
+      { label: 'Evening', start: 16, end: 21 },
+      { label: 'Night', start: 21, end: 5 },
+    ]
+    const timedPosts = posts.filter((post) => post.hour >= 0 && post.hour < 24)
+    if (!timedPosts.length) return '—'
+    return windows.map((window) => {
+      const matching = timedPosts.filter((post) => window.end > window.start
+        ? post.hour >= window.start && post.hour < window.end
+        : post.hour >= window.start || post.hour < window.end)
+      return { label: window.label, average: matching.length ? matching.reduce((sum, post) => sum + engagement(post), 0) / matching.length : -1 }
+    }).sort((left, right) => right.average - left.average)[0]?.label ?? '—'
+  }, [posts])
 
   function log(message: string) {
     setActivity((items) => [message, ...items].slice(0, 30))
@@ -130,10 +155,26 @@ export default function SeaDashboard() {
     setToast(message)
     window.setTimeout(() => setToast(''), 2600)
   }
-  function addMemory(message: string) { setMemories((items) => [message, ...items].slice(0, 80)) }
+  function currentContext() {
+    return { posts: posts.slice(0, 50).map((post) => ({ ...post, hour: post.hour >= 0 ? post.hour : null })), comments: comments.slice(0, 30), audience: { topTopics: topics.slice(0, 6), positiveCommentRate: positiveRate, bestPostingWindow: bestTime } }
+  }
+  async function retainLearning(memory: string, description: string) {
+    log('Hindsight RETAIN · sending audience learning')
+    try {
+      await requestAgent('retain', { memory })
+      log(`Hindsight RETAIN · ${description} stored in the social-media-agent bank`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Hindsight could not store this learning.'
+      log(`Hindsight RETAIN failed · ${message}`)
+      notify(message)
+    }
+  }
   function loadDemo() {
-    setPosts(makeSamplePosts()); setComments(sampleComments); setMemories((items) => [...memorySeed, ...items].slice(0, 80))
-    log('Loaded demo dataset · 36 posts and 28 comments'); notify('Demo data loaded')
+    const demoPosts = makeSamplePosts()
+    setPosts(demoPosts); setComments(sampleComments); setMemories([])
+    log('Loaded demo dataset · storing sample engagement history in Hindsight')
+    void retainLearning(`Demo historical social-post records (${demoPosts.length} posts): ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Sample audience comments: ${JSON.stringify(sampleComments.slice(0, 20))}. These records are illustrative demo data, not real account metrics.`, 'demo engagement history')
+    notify('Demo data loaded · sending learning to Hindsight')
   }
   function importCsv() {
     if (!csv.trim()) { setCsvStatus('Paste CSV data or choose a file first.'); return }
@@ -147,10 +188,13 @@ export default function SeaDashboard() {
       const date = String(row.date)
       const timestamp = Date.parse(date)
       const day = Number.isNaN(timestamp) ? index % 7 : new Date(timestamp).getDay()
-      return { id: `csv-${Date.now()}-${index}`, date, platform: String(row.platform), content: String(row.content), topic: String(row.topic), type: String(row.type), likes: Number(row.likes) || 0, comments: Number(row.comments) || 0, shares: Number(row.shares) || 0, saves: Number(row.saves) || 0, hour: 18, day }
+      const importedHour = Number(row.hour)
+      const hour = Number.isFinite(importedHour) && importedHour >= 0 && importedHour < 24 && String(row.hour).trim() ? importedHour : date.includes('T') && !Number.isNaN(timestamp) ? new Date(timestamp).getHours() : -1
+      return { id: `csv-${Date.now()}-${index}`, date, platform: String(row.platform), content: String(row.content), topic: String(row.topic), type: String(row.type), likes: Number(row.likes) || 0, comments: Number(row.comments) || 0, shares: Number(row.shares) || 0, saves: Number(row.saves) || 0, hour, day }
     })
     if (!imported.length) { setCsvStatus('No valid rows found in the CSV.'); return }
-    setPosts((current) => [...imported, ...current]); addMemory(`CSV import added ${imported.length} posts.`); log(`Imported ${imported.length} posts from CSV`)
+    setPosts((current) => [...imported, ...current]); log(`Imported ${imported.length} posts from CSV`)
+    void retainLearning(`Imported historical social post engagement data (${imported.length} rows): ${JSON.stringify(imported.slice(0, 40).map(({ date, platform, content, topic, type, likes, comments, shares, saves, hour }) => ({ date, platform, content: content.slice(0, 500), topic, format: type, likes, comments, shares, saves, hour })))}. Analyze the provided records for audience interests, relative performance by topic and format, posting-time patterns, and notable engagement differences.`, `CSV engagement history (${imported.length} posts)`)
     setCsvStatus(`Successfully imported ${imported.length} posts.`); notify(`Imported ${imported.length} posts`)
     window.setTimeout(() => { setCsvOpen(false); setCsvStatus(''); setCsv('') }, 1000)
   }
@@ -160,53 +204,131 @@ export default function SeaDashboard() {
     reader.onload = () => setCsv(String(reader.result ?? ''))
     reader.readAsText(file)
   }
-  function analyzePost(event: React.FormEvent<HTMLFormElement>) {
+  async function analyzePost(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const content = String(form.get('post') ?? '')
+    const content = String(form.get('post') ?? '').slice(0, 4_000)
     const topic = String(form.get('topic') || 'General')
     const type = String(form.get('type') || 'Educational')
     const likes = Number(form.get('likes')) || 0
     const postComments = Number(form.get('comments')) || 0
-    const historical = topics.find((item) => item.topic.toLowerCase() === topic.toLowerCase())
-    const hook = /^(did you know|5 |7 |how to|stop |why )/i.test(content.trim()) ? 'Strong' : content.length > 10 ? 'Moderate' : 'Needs a clearer opening'
-    const cta = /comment|share|save|follow|dm|tell us/i.test(content) ? 'Present' : 'Add a call to action'
-    const avg = posts.length ? posts.reduce((total, item) => total + item.likes + item.comments * 2, 0) / posts.length : likes + postComments * 2
-    const potential = likes + postComments * 2 > avg * 1.1 ? 'High' : likes + postComments * 2 > avg * 0.7 ? 'Promising' : 'Needs more context'
-    setAnalysis(`${hook}|${cta}|${historical ? 'Strong match · ' + historical.rate + '% average' : 'No matching topic history'}|${potential}|${type}`)
-    addMemory(`Post on “${topic}” (${type}) analyzed · potential ${potential.toLowerCase()}.`); log(`Analyzed post on “${topic}”`)
+    const shares = Number(form.get('shares')) || 0
+    const postData = { content, topic, format: type, platform: String(form.get('platform') || ''), postingTime: String(form.get('time') || ''), likes, comments: postComments, shares }
+    setPending('analysis')
+    log('Hindsight RECALL · checking audience history for post analysis')
+    try {
+      const result = await requestAgent('analysis', {
+        question: `Assess this post using current post history and Hindsight memories. Post and supplied performance: ${JSON.stringify(postData)}`,
+        context: currentContext(),
+      })
+      const fields = (result.text ?? '').split('|').map((field) => field.trim())
+      if (fields.length !== 5 || fields.some((field) => !field)) throw new Error('The AI response could not be displayed. Please run the analysis again.')
+      setMemories(result.memories ?? [])
+      setAnalysis(fields.join('|'))
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
+      log('Groq LLM · analyzed post against audience history')
+      log(`Analyzed post on “${topic}”`)
+      if (likes || postComments || shares) void retainLearning(`User-supplied post performance observation: ${JSON.stringify(postData)}. These engagement numbers are user-provided; retain them as historical evidence without inferring a winning or losing pattern from a single post.`, `performance for “${topic}”`)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Post analysis failed. Try again.')
+    } finally {
+      setPending(null)
+    }
   }
-  function analyzeComments(lines: string[]) {
-    const cleaned = lines.map((line) => line.trim()).filter(Boolean)
+  async function analyzeComments(lines: string[]) {
+    const cleaned = lines.map((line) => line.trim()).filter(Boolean).slice(0, 120)
     if (!cleaned.length) { notify('Add a few comments to analyze first'); return }
-    setCommentAnalysis(cleaned); setComments(cleaned); addMemory(`Comment batch · ${Math.round(cleaned.filter((item) => sentiment(item) === 'positive').length / cleaned.length * 100)}% positive sentiment.`)
-    log(`Analyzed ${cleaned.length} audience comments`)
+    setCommentAnalysis(cleaned); setComments(cleaned); setCommentInsight(''); setPending('comment-analysis')
+    log('Hindsight RECALL · checking historical audience context for comment analysis')
+    try {
+      const result = await requestAgent('comment-analysis', {
+        question: `Analyze these ${cleaned.length} actual audience comments. Identify recurring interests, questions, concerns, and requested content without inventing patterns.`,
+        context: { ...currentContext(), comments: cleaned },
+      })
+      setMemories(result.memories ?? [])
+      setCommentInsight(result.text ?? '')
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
+      log('Groq LLM · analyzed audience comments with historical context')
+      log(`Analyzed ${cleaned.length} audience comments`)
+      void retainLearning(`Audience comment sample (${cleaned.length} comments supplied by the workspace user): ${JSON.stringify(cleaned.slice(0, 80))}. These are actual comments; use them as evidence for recurring questions, interests, requested formats, and sentiment patterns.`, `${cleaned.length} audience comments`)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Comment analysis failed. Try again.')
+    } finally {
+      setPending(null)
+    }
   }
-  function generateContent(event?: React.FormEvent<HTMLFormElement>) {
+  async function generateContent(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault()
     const form = document.getElementById('generator-form') as HTMLFormElement | null
-    const values = form ? new FormData(form) : null
-    const topic = String(values?.get('topic') || bestTopic)
-    const platform = String(values?.get('platform') || 'LinkedIn')
-    const type = String(values?.get('type') || 'Educational')
-    const audience = String(values?.get('audience') || 'curious professionals')
-    const output = `${topic}: 3 things most people get wrong.\n\n1. Start small — choose one workflow to improve.\n2. Measure the before and after so the impact is clear.\n3. Share what worked — ${audience} learn fastest from real examples.\n\nSave this for later, and tell me which step you’ll try first.\n\n#${topic.replace(/\s+/g, '')} #${platform.replace(/[^a-z]/gi, '')} #${type.replace(/\s+/g, '')}`
-    setDraft(output); addMemory(`Generated ${type} content on “${topic}” for ${platform}.`); log('Generated personalized content using audience memory')
+    if (!form) return
+    const values = new FormData(form)
+    const topic = String(values.get('topic') || bestTopic)
+    const platform = String(values.get('platform') || 'LinkedIn')
+    const type = String(values.get('type') || 'Educational')
+    const tone = String(values.get('tone') || 'Practical and conversational')
+    const audience = String(values.get('audience') || 'curious professionals')
+    const goal = String(values.get('goal') || 'Increase engagement')
+    const brief = `Create a ${type} ${platform} post about ${topic} for ${audience}. Tone: ${tone}. Goal: ${goal}. Return only the finished post.`
+    setPending('content')
+    log('Hindsight RECALL · retrieving audience preferences for content')
+    try {
+      const result = await requestAgent('content', { question: brief, context: currentContext() })
+      setDraft(result.text ?? '')
+      setMemories(result.memories ?? [])
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
+      log('Groq LLM · generated content using retrieved audience preferences')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Content generation failed. Try again.')
+    } finally {
+      setPending(null)
+    }
   }
   function saveDraft() { if (!draft) return; setSavedDrafts((items) => [draft, ...items]); notify('Draft saved to your library'); log('Saved generated content') }
-  function sendChat(question = chatInput) {
+  async function sendChat(question = chatInput) {
     const query = question.trim()
-    if (!query) return
-    const lower = query.toLowerCase()
-    let response = `Your strongest topic is ${bestTopic}, with ${topics[0]?.count ?? 0} posts in your history. ${types[0]?.type ?? 'Educational'} content performs well, especially during the ${bestTime.toLowerCase()} window.`
-    if (lower.includes('question') || lower.includes('ask')) response = 'Your audience repeatedly asks which tools to use, how to get started, and whether you can share a practical template. Those questions are great prompts for your next tutorial.'
-    else if (lower.includes('why') || lower.includes('perform')) response = `${bestTopic} performs well because your audience engages most with practical, step-by-step ${types[0]?.type.toLowerCase() ?? 'educational'} content. Your comment history also shows a strong appetite for actionable examples.`
-    else if (lower.includes('write') || lower.includes('linkedin')) response = `Here’s a starting point: “${bestTopic}: 3 things most people get wrong. Start small, measure the result, and share what worked. Save this for later and tell me which workflow you’d automate first.”`
-    else if (!posts.length) response = 'I need a little more post history before I can make a grounded recommendation. Import a CSV or load demo data to get started.'
-    setChat((items) => [...items, { role: 'user', text: query }, { role: 'agent', text: response }]); setChatInput(''); log('Agent answered using audience memory and post history')
+    if (!query || pending) return
+    setChatInput('')
+    setChat((items) => [...items, { role: 'user', text: query }])
+    setPending('chat')
+    log('Hindsight RECALL · retrieving relevant audience history')
+    try {
+      const result = await requestAgent('chat', { question: query, context: currentContext() })
+      setMemories(result.memories ?? [])
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
+      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience')
+      log('Groq LLM · generated a memory-grounded response')
+      setChat((items) => [...items, { role: 'agent', text: result.text ?? '' }])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The agent request failed. Try again.'
+      log(`Agent request failed · ${message}`)
+      setChat((items) => [...items, { role: 'agent', text: message }])
+    } finally {
+      setPending(null)
+    }
+  }
+  async function generateRecommendation() {
+    if (pending) return
+    setPending('recommendation')
+    setRecommendation('')
+    log('Hindsight RECALL · retrieving historical evidence for a recommendation')
+    try {
+      const result = await requestAgent('recommendation', { question: 'What should I post next?', context: currentContext() })
+      setRecommendation(result.text ?? '')
+      setMemories(result.memories ?? [])
+      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
+      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience')
+      log('Groq LLM · generated a memory-grounded recommendation')
+      notify('Recommendation generated from Hindsight and your post history')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Recommendation generation failed. Try again.'
+      log(`Recommendation failed · ${message}`)
+      notify(message)
+    } finally {
+      setPending(null)
+    }
   }
   function clearData() {
-    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setDraft(''); setActivity(['Workspace data cleared']); notify('Workspace data cleared')
+    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setActivity(['Workspace session cleared · Hindsight long-term memories retained']); notify('Workspace session cleared')
   }
 
   return (
@@ -224,20 +346,20 @@ export default function SeaDashboard() {
       <div className="sea-workspace">
         <header className="sea-topbar">
           <button className="brand-switch" onClick={() => notify('Tech Innovators Co. workspace')} aria-label="Current workspace: Tech Innovators Co.">Tech Innovators Co. <ChevronDown /></button>
-          <div className="memory-badge"><span className="memory-dot" /><span className="memory-name">HINDSIGHT MEMORY</span><span className="memory-engine">LOCAL ENGINE · <b>{memories.length}</b> MEMORIES</span></div>
+          <div className="memory-badge"><span className="memory-dot" /><span className="memory-name">HINDSIGHT CLOUD</span><span className="memory-engine"><b>{memories.length}</b> RECALLS</span></div>
           <div className="top-spacer" />
           <button className="button-primary import-top" onClick={() => { setCsvOpen(true); setCsvStatus('') }}><Upload /> <span>Import CSV</span></button>
         </header>
 
         <main className="sea-main" key={page}>
           {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} onDemo={loadDemo} onNavigate={setPage} />}
-          {page === 'post' && <PostAnalyzer analysis={analysis} onAnalyze={analyzePost} />}
-          {page === 'comments' && <CommentAnalyzer comments={comments} analysis={commentAnalysis} onAnalyze={analyzeComments} />}
-          {page === 'content' && <ContentGenerator draft={draft} saved={savedDrafts} showSaved={showSaved} onToggleSaved={() => setShowSaved(!showSaved)} onGenerate={generateContent} onSave={saveDraft} onCopy={() => { void navigator.clipboard?.writeText(draft); notify('Draft copied to clipboard') }} />}
+          {page === 'post' && <PostAnalyzer analysis={analysis} analysisLoading={pending === 'analysis'} onAnalyze={analyzePost} />}
+          {page === 'comments' && <CommentAnalyzer comments={comments} analysis={commentAnalysis} insight={commentInsight} isAnalyzing={pending === 'comment-analysis'} memories={memories} onAnalyze={analyzeComments} />}
+          {page === 'content' && <ContentGenerator draft={draft} saved={savedDrafts} showSaved={showSaved} isGenerating={pending === 'content'} memories={memories} onToggleSaved={() => setShowSaved(!showSaved)} onGenerate={generateContent} onSave={saveDraft} onCopy={() => { void navigator.clipboard?.writeText(draft); notify('Draft copied to clipboard') }} />}
           {page === 'knowledge' && <AudienceKnowledge posts={posts} topics={topics} comments={comments} memories={memories} />}
-          {page === 'recs' && <Recommendations posts={posts} topics={topics} types={types} bestTime={bestTime} positiveRate={positiveRate} onGenerate={() => { log('Generated a fresh recommendation'); notify('Recommendation refreshed') }} />}
+          {page === 'recs' && <Recommendations recommendation={recommendation} isGenerating={pending === 'recommendation'} onGenerate={generateRecommendation} />}
           {page === 'social' && <SocialAccounts count={posts.length} connected={connected} setConnected={setConnected} onCsv={() => setCsvOpen(true)} onDemo={loadDemo} />}
-          {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} onSend={sendChat} />}
+          {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} isSending={pending === 'chat'} onSend={sendChat} />}
           {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={memories.length} onClear={clearData} />}
         </main>
       </div>
@@ -285,7 +407,7 @@ function Dashboard({ posts, comments, topics, positiveRate, bestTime, onDemo, on
       <Panel className="performance-panel"><div className="panel-heading"><div><Eyebrow>PERFORMANCE</Eyebrow><h2>Engagement by topic</h2></div><button className="text-action" onClick={() => onNavigate('knowledge')}>View insights <ArrowUpRight /></button></div>
         {topics.length ? <div className="topic-bars">{topics.slice(0, 5).map((topic, index) => <div className="topic-bar-row" key={topic.topic}><div className="topic-bar-label"><span>{topic.topic}</span><small>{topic.count} posts</small><b>{topic.rate.toFixed(2)}%</b></div><div className="meter"><span style={{ width: `${Math.max(10, topic.total / (topics[0]?.total || 1) * 100)}%` }} /></div>{index === 0 && <div className="topic-caption">Your audience saves practical, step-by-step content.</div>}</div>)}</div> : <EmptyState icon={FileSearch} title="No posts yet">Import a CSV to begin learning from your content.</EmptyState>}
       </Panel>
-      <Panel className="summary-panel"><div className="panel-heading"><div><Eyebrow>YOUR AUDIENCE</Eyebrow><h2>At a glance</h2></div><span className="live-pill"><span /> LIVE MEMORY</span></div>
+      <Panel className="summary-panel"><div className="panel-heading"><div><Eyebrow>YOUR AUDIENCE</Eyebrow><h2>At a glance</h2></div><span className="live-pill"><span /> HINDSIGHT · social-media-agent</span></div>
         <div className="summary-highlight"><div className="summary-icon"><Lightbulb /></div><div><small>TOP PERFORMING TOPIC</small><strong>{topics[0]?.topic ?? 'Not enough data'}</strong><span>{topics[0] ? `${topics[0].rate.toFixed(2)}% average likes per post` : 'Import post history to unlock insights.'}</span></div></div>
         <div className="summary-row"><span>Best posting window</span><strong>{bestTime}</strong></div><div className="summary-row"><span>Best content format</span><strong>{posts.length ? 'Tutorial' : '—'}</strong></div><div className="summary-row"><span>Audience questions</span><strong>{comments.filter((item) => item.includes('?')).length}</strong></div>
         <button className="button-secondary button-wide" onClick={() => onNavigate('recs')}>See recommendations <ArrowRight /></button>
@@ -298,7 +420,7 @@ function Dashboard({ posts, comments, topics, positiveRate, bestTime, onDemo, on
 }
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: React.ReactNode; hint: string; icon: typeof Bot }) { return <div className="stat-card"><div className="stat-top"><span>{label}</span><Icon /></div><strong>{value}</strong><small>{hint}</small></div> }
 
-function PostAnalyzer({ analysis, onAnalyze }: { analysis: string | null; onAnalyze: (event: React.FormEvent<HTMLFormElement>) => void }) {
+function PostAnalyzer({ analysis, analysisLoading, onAnalyze }: { analysis: string | null; analysisLoading: boolean; onAnalyze: (event: React.FormEvent<HTMLFormElement>) => void }) {
   const parts = analysis?.split('|')
   return <><PageTitle>Post Analyzer</PageTitle><div className="two-column-layout">
     <Panel><Eyebrow>INPUT</Eyebrow><h2>Post &amp; engagement</h2><form onSubmit={onAnalyze}>
@@ -306,13 +428,13 @@ function PostAnalyzer({ analysis, onAnalyze }: { analysis: string | null; onAnal
       <div className="form-grid"><div><label className="field-label" htmlFor="post-platform">Platform</label><select className="form-control" id="post-platform" name="platform"><option>Instagram</option><option>LinkedIn</option><option>X/Twitter</option></select></div><div><label className="field-label" htmlFor="post-type">Content type</label><select className="form-control" id="post-type" name="type">{sampleTypes.map((type) => <option key={type}>{type}</option>)}</select></div>
       <div><label className="field-label" htmlFor="post-topic">Topic</label><input className="form-control" id="post-topic" name="topic" placeholder="Python" /></div><div><label className="field-label" htmlFor="post-time">Posting time</label><input className="form-control" id="post-time" name="time" type="datetime-local" /></div>
       <div><label className="field-label" htmlFor="post-likes">Likes</label><input className="form-control" id="post-likes" name="likes" type="number" min="0" placeholder="1200" /></div><div><label className="field-label" htmlFor="post-comments">Comments</label><input className="form-control" id="post-comments" name="comments" type="number" min="0" placeholder="85" /></div></div>
-      <button className="button-primary form-submit" type="submit"><Sparkles /> Analyze post</button>
+      <button className="button-primary form-submit" type="submit" disabled={analysisLoading}>{analysisLoading ? 'Checking audience memory…' : <><Sparkles /> Analyze post</>}</button>
     </form></Panel>
-    <Panel><Eyebrow>ANALYSIS</Eyebrow><h2>AI assessment</h2>{parts ? <div className="analysis-results"><div className="assessment-score"><div><small>ENGAGEMENT POTENTIAL</small><strong>{parts[3]}</strong></div><Sparkles /></div>{[['HOOK', parts[0]], ['CALL TO ACTION', parts[1]], ['TOPIC FIT', parts[2]]].map(([label, value]) => <div className="assessment-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}<div className="insight-note"><Lightbulb />Build the opening around one clear audience problem, then close with a specific question.</div></div> : <EmptyState icon={FileSearch} title="No analysis yet">The agent checks hook, clarity, CTA, and audience fit against your post history.</EmptyState>}</Panel>
+    <Panel><Eyebrow>ANALYSIS</Eyebrow><h2>AI assessment</h2>{parts ? <div className="analysis-results"><div className="assessment-score"><div><small>ENGAGEMENT POTENTIAL</small><strong>{parts[3]}</strong></div><Sparkles /></div>{[['HOOK', parts[0]], ['CALL TO ACTION', parts[1]], ['TOPIC FIT', parts[2]]].map(([label, value]) => <div className="assessment-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div> : <EmptyState icon={FileSearch} title="No analysis yet">The agent checks hook, clarity, CTA, and audience fit against your post history.</EmptyState>}</Panel>
   </div></>
 }
 
-function CommentAnalyzer({ comments, analysis, onAnalyze }: { comments: string[]; analysis: string[] | null; onAnalyze: (lines: string[]) => void }) {
+function CommentAnalyzer({ comments, analysis, insight, isAnalyzing, memories, onAnalyze }: { comments: string[]; analysis: string[] | null; insight: string; isAnalyzing: boolean; memories: string[]; onAnalyze: (lines: string[]) => void }) {
   const [tab, setTab] = useState<'Paste' | 'CSV upload' | 'Platform'>('Paste')
   const [commentInput, setCommentInput] = useState(analysis?.join('\n') ?? '')
   const parsed = analysis ?? comments
@@ -325,22 +447,22 @@ function CommentAnalyzer({ comments, analysis, onAnalyze }: { comments: string[]
   return <><PageTitle>Comment Analyzer</PageTitle><div className="two-column-layout comments-layout">
     <Panel><Eyebrow>INPUT</Eyebrow><h2>Audience comments</h2><div className="segmented-tabs" role="tablist" aria-label="Comment source">{(['Paste', 'CSV upload', 'Platform'] as const).map((item) => <button key={item} role="tab" aria-selected={tab === item} className={tab === item ? 'selected' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>
       {tab === 'Paste' ? <><label className="field-label" htmlFor="comment-input">One comment per line</label><textarea className="form-control comments-textarea" id="comment-input" placeholder={'Which tool do you use for this?\nLove this, more tutorials please!'} value={commentInput} onChange={(event) => setCommentInput(event.target.value)} /></> : tab === 'CSV upload' ? <label className="upload-zone comment-upload"><Upload /><strong>Choose a comments CSV</strong><span>CSV files with one comment per row</span><input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) void file.text().then((text) => { const rows = text.split(/\r?\n/).filter(Boolean); const headers = parseCsvLine(rows[0] ?? '').map((value) => value.trim().toLowerCase()); const commentColumn = headers.findIndex((header) => header === 'comment' || header === 'comments'); const lines = rows.slice(1).map((row) => parseCsvLine(row)[commentColumn >= 0 ? commentColumn : 0] ?? '').filter(Boolean); setCommentInput(lines.join('\n')); setTab('Paste') }) }} /></label> : <div className="platform-empty"><CircleHelp /><strong>Connect an account to sync comments</strong><span>Platform access can be configured in Social Accounts.</span></div>}
-      <label className="field-label" htmlFor="comment-link">Link to a post <span className="optional">(optional)</span></label><select className="form-control" id="comment-link"><option>Not linked to a post</option></select><button className="button-primary form-submit" onClick={() => onAnalyze(commentInput.split('\n'))}><Sparkles /> Analyze comments</button>
+      <label className="field-label" htmlFor="comment-link">Link to a post <span className="optional">(optional)</span></label><select className="form-control" id="comment-link"><option>Not linked to a post</option></select><button className="button-primary form-submit" onClick={() => onAnalyze(commentInput.split('\n'))} disabled={isAnalyzing}>{isAnalyzing ? 'Checking audience memory…' : <><Sparkles /> Analyze comments</>}</button>
     </Panel>
     <Panel><Eyebrow>INSIGHTS</Eyebrow><h2>Latest analysis</h2>{parsed.length ? <><p className="analysis-meta">{parsed.length} comments <span>·</span> Updated just now</p><Eyebrow>AUDIENCE SENTIMENT</Eyebrow><SentimentBar label="Positive" count={positive} total={parsed.length} color="green" /><SentimentBar label="Neutral" count={neutral} total={parsed.length} color="neutral" /><SentimentBar label="Negative" count={negative} total={parsed.length} color="red" />
-      <p className="sentiment-summary">{positive > negative ? 'Your audience is responding positively to practical, useful content.' : 'The conversation has a mix of reactions. Address recurring questions with clearer examples.'}</p><div className="interest-grid"><div><Eyebrow>TOP AUDIENCE INTERESTS</Eyebrow>{interests.length ? interests.slice(0, 4).map((item, index) => <div className="rank-row" key={item.term}><span>{index + 1}.&nbsp; {item.term}</span><small>×{item.count}</small></div>) : <p className="muted">No repeat topics found.</p>}</div><div><Eyebrow>RECURRING QUESTIONS</Eyebrow>{questions.length ? questions.slice(0, 4).map((question, index) => <div className="rank-row question-row" key={`${question}-${index}`}><span>{index + 1}.&nbsp; {question}</span></div>) : <p className="muted">No questions in this batch.</p>}</div></div>
+      <p className="sentiment-summary">{insight || (isAnalyzing ? 'Analyzing with Groq and Hindsight…' : 'Sentiment counts below use the current session comment sample.')}</p>{!!memories.length && <div className="memory-callout"><Brain /><div><Eyebrow>HINDSIGHT CONTEXT</Eyebrow><span>{memories.slice(0, 3).join(' · ')}</span></div></div>}<div className="interest-grid"><div><Eyebrow>TOP AUDIENCE INTERESTS</Eyebrow>{interests.length ? interests.slice(0, 4).map((item, index) => <div className="rank-row" key={item.term}><span>{index + 1}.&nbsp; {item.term}</span><small>×{item.count}</small></div>) : <p className="muted">No repeat topics found.</p>}</div><div><Eyebrow>RECURRING QUESTIONS</Eyebrow>{questions.length ? questions.slice(0, 4).map((question, index) => <div className="rank-row question-row" key={`${question}-${index}`}><span>{index + 1}.&nbsp; {question}</span></div>) : <p className="muted">No questions in this batch.</p>}</div></div>
     </> : <EmptyState icon={MessageSquareText} title="No analysis yet">Paste comments and analyze to reveal sentiment, interests, and recurring questions.</EmptyState>}</Panel>
   </div></>
 }
 function SentimentBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) { const percent = total ? Math.round(count / total * 100) : 0; return <div className="sentiment-row"><span>{label}</span><div className="meter sentiment-meter"><span className={color} style={{ width: `${percent}%` }} /></div><strong>{percent}%</strong></div> }
 
-function ContentGenerator({ draft, saved, showSaved, onToggleSaved, onGenerate, onSave, onCopy }: { draft: string; saved: string[]; showSaved: boolean; onToggleSaved: () => void; onGenerate: (event?: React.FormEvent<HTMLFormElement>) => void; onSave: () => void; onCopy: () => void }) {
+function ContentGenerator({ draft, saved, showSaved, isGenerating, memories, onToggleSaved, onGenerate, onSave, onCopy }: { draft: string; saved: string[]; showSaved: boolean; isGenerating: boolean; memories: string[]; onToggleSaved: () => void; onGenerate: (event?: React.FormEvent<HTMLFormElement>) => void; onSave: () => void; onCopy: () => void }) {
   return <><PageTitle>Content Generator</PageTitle><div className="segmented-tabs generator-tabs"><button className={!showSaved ? 'selected' : ''} onClick={onToggleSaved}>Generate</button><button className={showSaved ? 'selected' : ''} onClick={onToggleSaved}>Saved content ({saved.length})</button></div><div className="two-column-layout generator-layout">
     <Panel><Eyebrow>BRIEF</Eyebrow><h2>What to create</h2><form id="generator-form" onSubmit={onGenerate}><label className="field-label" htmlFor="gen-topic">Topic</label><input className="form-control" id="gen-topic" name="topic" placeholder="AI tools" defaultValue="AI Automation" />
       <div className="form-grid"><div><label className="field-label" htmlFor="gen-platform">Platform</label><select className="form-control" id="gen-platform" name="platform"><option>LinkedIn</option><option>Instagram</option><option>X/Twitter</option></select></div><div><label className="field-label" htmlFor="gen-type">Content type</label><select className="form-control" id="gen-type" name="type">{sampleTypes.slice(0, 4).map((type) => <option key={type}>{type}</option>)}</select></div><div><label className="field-label" htmlFor="gen-tone">Tone</label><input className="form-control" id="gen-tone" name="tone" placeholder="Professional + conversational" defaultValue="Practical and conversational" /></div><div><label className="field-label" htmlFor="gen-goal">Goal</label><select className="form-control" id="gen-goal" name="goal"><option>Increase engagement</option><option>Drive saves</option><option>Grow followers</option></select></div></div>
-      <label className="field-label" htmlFor="gen-audience">Target audience</label><input className="form-control" id="gen-audience" name="audience" placeholder="Early-career developers" defaultValue="early-career developers" /><button className="button-primary form-submit" type="submit"><Sparkles /> Generate draft</button>
+      <label className="field-label" htmlFor="gen-audience">Target audience</label><input className="form-control" id="gen-audience" name="audience" placeholder="Early-career developers" defaultValue="early-career developers" /><button className="button-primary form-submit" type="submit" disabled={isGenerating}>{isGenerating ? 'Reading memory and writing…' : <><Sparkles /> Generate draft</>}</button>
     </form></Panel>
-    <Panel><Eyebrow>{showSaved ? 'LIBRARY' : 'DRAFT'}</Eyebrow><h2>{showSaved ? 'Saved content' : 'Personalized content'}</h2>{showSaved ? saved.length ? saved.map((item, index) => <div className="saved-draft" key={`${item.slice(0, 30)}-${index}`}><p>{item}</p><button className="text-action" onClick={() => void navigator.clipboard?.writeText(item)}>Copy draft <ArrowUpRight /></button></div>) : <EmptyState icon={Sparkles} title="Nothing saved yet">Save a generated draft and it will be ready here.</EmptyState> : draft ? <><div className="draft-output">{draft}</div><div className="draft-actions"><button className="button-primary" onClick={() => onGenerate()}><Sparkles /> Regenerate</button><button className="button-secondary" onClick={onCopy}>Copy draft</button><button className="button-secondary" onClick={onSave}>Save</button></div><div className="why-note"><Eyebrow>WHY THIS CONTENT</Eyebrow><p>Your audience responds to practical tutorials. This draft uses a strong opening, an actionable structure, and a save-worthy CTA.</p></div></> : <EmptyState icon={Sparkles} title="No draft yet">The agent uses your audience memory and best-performing posts before writing.</EmptyState>}</Panel>
+    <Panel><Eyebrow>{showSaved ? 'LIBRARY' : 'DRAFT'}</Eyebrow><h2>{showSaved ? 'Saved content' : 'Personalized content'}</h2>{showSaved ? saved.length ? saved.map((item, index) => <div className="saved-draft" key={`${item.slice(0, 30)}-${index}`}><p>{item}</p><button className="text-action" onClick={() => void navigator.clipboard?.writeText(item)}>Copy draft <ArrowUpRight /></button></div>) : <EmptyState icon={Sparkles} title="Nothing saved yet">Save a generated draft and it will be ready here.</EmptyState> : draft ? <><div className="draft-output">{draft}</div><div className="draft-actions"><button className="button-primary" onClick={() => onGenerate()}><Sparkles /> Regenerate</button><button className="button-secondary" onClick={onCopy}>Copy draft</button><button className="button-secondary" onClick={onSave}>Save</button></div><div className="why-note"><Eyebrow>HINDSIGHT AUDIENCE CONTEXT</Eyebrow><p>{memories.length ? memories.slice(0, 3).join(' · ') : 'No relevant Hindsight memories were returned. This draft is based only on the current brief and post history; historical evidence is limited.'}</p></div></> : <EmptyState icon={Sparkles} title="No draft yet">The agent uses your audience memory and best-performing posts before writing.</EmptyState>}</Panel>
   </div></>
 }
 
@@ -349,18 +471,16 @@ function AudienceKnowledge({ posts, topics, comments, memories }: { posts: Post[
   const windows = [{ label: 'MORNING', hours: '05–12h', start: 5, end: 12 }, { label: 'AFTERNOON', hours: '12–17h', start: 12, end: 17 }, { label: 'EVENING', hours: '17–22h', start: 17, end: 22 }, { label: 'NIGHT', hours: '22–05h', start: 22, end: 29 }]
   const heat = days.map((_, day) => windows.map((window) => posts.filter((post) => post.day === day && (window.end > 24 ? post.hour >= window.start || post.hour < window.end - 24 : post.hour >= window.start && post.hour < window.end)).length))
   const maxHeat = Math.max(1, ...heat.flat())
-  return <><PageTitle>Audience Knowledge</PageTitle><div className="stat-grid knowledge-stats"><Stat label="MEMORIES" value={memories.length || 0} hint="Stored audience insights" icon={Brain} /><Stat label="POSTS LEARNED" value={posts.length} hint={`${posts.filter((post) => post.hour != null).length} with posting time`} icon={BriefcaseBusiness} /><Stat label="COMMENTS" value={comments.length} hint="Classified by the agent" icon={MessageSquareText} /><Stat label="LAST UPDATE" value={memories.length ? 'SEP 27' : '—'} hint={memories.length ? 'Audience profile updated' : 'No updates yet'} icon={ArrowUpRight} /></div>
+  return <><PageTitle>Audience Knowledge</PageTitle><div className="stat-grid knowledge-stats"><Stat label="MEMORIES" value={memories.length} hint="Hindsight recalls in this session" icon={Brain} /><Stat label="POSTS LEARNED" value={posts.length} hint={`${posts.filter((post) => post.hour >= 0).length} with posting time`} icon={BriefcaseBusiness} /><Stat label="COMMENTS" value={comments.length} hint="Classified by the agent" icon={MessageSquareText} /><Stat label="MEMORY STATUS" value={memories.length ? 'RECALLED' : '—'} hint={memories.length ? 'Hindsight results in this session' : 'No recall in this session yet'} icon={ArrowUpRight} /></div>
     <div className="two-column-layout knowledge-layout"><Panel><div className="panel-heading"><div><Eyebrow>CONTENT PERFORMANCE</Eyebrow><h2>High-performing topics</h2></div></div>{topics.length ? topics.map((topic, index) => <div className="knowledge-topic" key={topic.topic}><div className="topic-bar-label"><span>{topic.topic} <small>· {topic.count} posts</small></span><b>{topic.rate.toFixed(2)}% <i className={index ? 'down' : 'up'}>{index ? '−' : '+'}{Math.max(2, 64 - index * 17)}%</i></b></div><div className="meter"><span style={{ width: `${topic.rate / (topics[0]?.rate || 1) * 100}%` }} /></div></div>) : <EmptyState icon={Brain} title="No audience data">Import posts to build your audience profile.</EmptyState>}<div className="memory-callout"><Brain /><div><Eyebrow>WHAT THE AGENT REMEMBERS</Eyebrow><span>{memories[0] ?? 'Import content to start learning about your audience.'}</span></div></div></Panel>
       <Panel><div className="panel-heading"><div><Eyebrow>WHEN TO POST</Eyebrow><h2>Best posting times</h2></div></div><div className="heatmap"><div className="heat-spacer" />{windows.map((window) => <div className="heat-label" key={window.label}>{window.label}<span>{window.hours}</span></div>)}{days.map((day, index) => <div className="heat-row" key={day}><span>{day}</span>{heat[index].map((count, windowIndex) => <div className="heat-cell" key={`${day}-${windowIndex}`} style={{ backgroundColor: count ? `rgba(0, 229, 216, ${0.2 + count / maxHeat * 0.66})` : 'var(--surface-2)' }} title={`${day}: ${count} posts`}>{count || ''}</div>)}</div>)}</div><div className="heat-legend"><span>Fewer posts</span><i /><i /><i /><i /><span>More posts</span></div></Panel></div>
   </>
 }
 
-function Recommendations({ posts, topics, types, bestTime, positiveRate, onGenerate }: { posts: Post[]; topics: { topic: string; count: number; total: number; rate: number }[]; types: { type: string; avg: number }[]; bestTime: string; positiveRate: number; onGenerate: () => void }) {
-  const top = topics[0]
-  return <><PageTitle>Recommendations <button className="button-primary heading-action" onClick={onGenerate}><Sparkles /> Generate recommendation</button></PageTitle>{top ? <Panel className="recommendation-card"><div className="rec-header"><div><Eyebrow>SEP 27, 10:58 · ACTIVE</Eyebrow><h2>{top.topic} · {types[0]?.type ?? 'Educational'} format</h2></div><span className="confidence">HIGH CONFIDENCE · {Math.min(95, 40 + top.count * 4)}%</span></div>
-    <div className="recommendation-grid">{[['TOPIC', top.topic], ['FORMAT', types[0]?.type ?? 'Educational'], ['TONE', 'Practical and instructional'], ['POSTING WINDOW', bestTime], ['SENTIMENT', `${positiveRate}% positive`], ['CTA', 'Ask audience to share their experience']].map(([label, value]) => <div key={label}><Eyebrow>{label}</Eyebrow><strong>{value}</strong></div>)}</div>
-    <div className="rec-detail"><Eyebrow>WHY</Eyebrow><p>{top.topic} leads your topics with a {top.rate.toFixed(2)}% average engagement rate, supported by {top.count} posts.</p></div><div className="rec-detail"><Eyebrow>EVIDENCE</Eyebrow><p>{posts.length} posts in your history help the agent make a recommendation grounded in your audience—not generic trends.</p></div><div className="rec-detail"><Eyebrow>HISTORICAL PATTERN</Eyebrow><p>{types[0]?.type ?? 'Educational'} content and {bestTime.toLowerCase()} posts line up with your strongest engagement windows.</p></div><div className="rec-detail"><Eyebrow>SUGGESTED POST</Eyebrow><p>“A step-by-step guide to {top.topic.toLowerCase()}, with a practical example your audience can try today.”</p></div>
-  </Panel> : <Panel><EmptyState icon={Lightbulb} title="Not enough historical data">Load demo data or import a CSV to get a recommendation grounded in your content.</EmptyState></Panel>}</>
+function Recommendations({ recommendation, isGenerating, onGenerate }: { recommendation: string; isGenerating: boolean; onGenerate: () => void }) {
+  return <><PageTitle>Recommendations <button className="button-primary heading-action" onClick={onGenerate} disabled={isGenerating}>{isGenerating ? 'Checking Hindsight…' : <><Sparkles /> Generate recommendation</>}</button></PageTitle>
+    {recommendation ? <Panel className="recommendation-card"><Eyebrow>HINDSIGHT + GROQ · LIVE RESULT</Eyebrow><div className="draft-output recommendation-output">{recommendation}</div></Panel> : <Panel><EmptyState icon={Lightbulb} title="No recommendation generated">Run the agent to retrieve Hindsight memories and create a recommendation from your actual audience history.</EmptyState></Panel>}
+  </>
 }
 
 function SocialAccounts({ count, connected, setConnected, onCsv, onDemo }: { count: number; connected: string[]; setConnected: React.Dispatch<React.SetStateAction<string[]>>; onCsv: () => void; onDemo: () => void }) {
@@ -370,16 +490,16 @@ function SocialAccounts({ count, connected, setConnected, onCsv, onDemo }: { cou
   </>
 }
 
-function AgentChat({ messages, input, setInput, onSend }: { messages: Message[]; input: string; setInput: (value: string) => void; onSend: (query?: string) => void }) {
+function AgentChat({ messages, input, setInput, isSending, onSend }: { messages: Message[]; input: string; setInput: (value: string) => void; isSending: boolean; onSend: (query?: string) => void }) {
   const suggestions = ['What should I post next?', 'What questions does my audience ask most?', 'Why do my best posts perform well?', 'Write a LinkedIn post about AI automation']
-  return <><PageTitle>Agent Chat</PageTitle><section className="chat-card"><div className="chat-intro"><div className="chat-bot-icon"><Bot /></div><div><h2>Ask your audience anything.</h2><p>Every answer is grounded in stored memory and your post history.</p></div></div>
-    {!messages.length && <div className="suggestion-grid">{suggestions.map((suggestion) => <button className="suggestion-chip" key={suggestion} onClick={() => onSend(suggestion)}>{suggestion}<ArrowUpRight /></button>)}</div>}
-    {!!messages.length && <div className="chat-transcript" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}><div className="chat-message-icon">{message.role === 'agent' ? <Bot /> : 'Y'}</div><p>{message.text}</p></div>)}</div>}
-    <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); onSend() }}><label className="visually-hidden" htmlFor="agent-prompt">Ask the agent a question</label><input id="agent-prompt" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about your audience, content, or next post…" /><button className="button-primary send-button" type="submit" aria-label="Send message"><Send /></button></form>
+  return <><PageTitle>Agent Chat</PageTitle><section className="chat-card"><div className="chat-intro"><div className="chat-bot-icon"><Bot /></div><div><h2>Ask your audience anything.</h2><p>The agent checks Hindsight first and identifies when historical evidence is limited.</p></div></div>
+    {!messages.length && <div className="suggestion-grid">{suggestions.map((suggestion) => <button className="suggestion-chip" key={suggestion} disabled={isSending} onClick={() => onSend(suggestion)}>{suggestion}<ArrowUpRight /></button>)}</div>}
+    {!!messages.length && <div className="chat-transcript" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}><div className="chat-message-icon">{message.role === 'agent' ? <Bot /> : 'Y'}</div><p>{message.text}</p></div>)}{isSending && <p className="chat-status" role="status">Retrieving Hindsight memory and asking Groq…</p>}</div>}
+    <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); onSend() }}><label className="visually-hidden" htmlFor="agent-prompt">Ask the agent a question</label><input id="agent-prompt" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about your audience, content, or next post…" disabled={isSending} /><button className="button-primary send-button" type="submit" aria-label="Send message" disabled={isSending || !input.trim()}><Send /></button></form>
   </section></>
 }
 
 function SettingsPage({ count, comments, memories, onClear }: { count: number; comments: number; memories: number; onClear: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false)
-  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your audience intelligence workspace is running in demo mode. Import your history to personalize insights.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear imported posts, audience comments, and stored insights from the current session.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
+  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
 }
