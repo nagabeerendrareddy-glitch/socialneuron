@@ -157,13 +157,31 @@ export async function POST(request: Request) {
     }
 
     const learningDemoBefore = input.action === 'learning-demo-before'
-    const memories = learningDemoBefore ? [] : extractMemories(await recallFromHindsight(question, hindsightApiKey))
+    let memories: string[] = []
     let reflection = ''
-    const reflected = !learningDemoBefore && needsReflection(input.action, question)
-    if (reflected) reflection = extractReflection(await reflectWithHindsight(question, hindsightApiKey)).slice(0, 8_000)
+    let hindsightWarning = ''
+    let reflected = false
+
+    if (!learningDemoBefore) {
+      try {
+        memories = extractMemories(await recallFromHindsight(question, hindsightApiKey))
+      } catch (error) {
+        hindsightWarning = error instanceof Error ? error.message.slice(0, 400) : 'Hindsight Recall is unavailable.'
+      }
+
+      reflected = !hindsightWarning && needsReflection(input.action, question)
+      if (reflected) {
+        try {
+          reflection = extractReflection(await reflectWithHindsight(question, hindsightApiKey)).slice(0, 8_000)
+        } catch (error) {
+          reflected = false
+          hindsightWarning = error instanceof Error ? error.message.slice(0, 400) : 'Hindsight Reflect is unavailable.'
+        }
+      }
+    }
 
     const text = await generateWithGroq(input.action, question, input.context, memories, reflection, groqApiKey || '')
-    return NextResponse.json({ text, memories, reflected, reflection })
+    return NextResponse.json({ text, memories, reflected, reflection, hindsightWarning: hindsightWarning || undefined })
   } catch (error) {
     if (error instanceof IntegrationError) {
       return NextResponse.json({ error: error.message }, { status: error.status })

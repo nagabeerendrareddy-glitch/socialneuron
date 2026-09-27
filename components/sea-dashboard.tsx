@@ -11,7 +11,7 @@ import {
 type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'recs' | 'social' | 'chat' | 'settings'
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
-type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; error?: string }
+type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; hindsightWarning?: string; error?: string }
 type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'learning-demo-before'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
 type DemoResults = { before: string; after: string; recalled: string[]; reflected: boolean }
@@ -196,8 +196,7 @@ export default function SeaDashboard() {
       updateActivity(activityId, `Hindsight RETAIN · ${description} stored in the social-media-agent bank`, 'success', { details: memory.slice(0, 900) })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Hindsight could not store this learning.'
-      updateActivity(activityId, `Hindsight RETAIN failed · ${message}`, 'error', { details: memory.slice(0, 500) })
-      notify(message)
+      updateActivity(activityId, `Hindsight RETAIN unavailable · ${message}`, 'error', { details: memory.slice(0, 500) })
     }
   }
   function loadDemo() {
@@ -246,7 +245,7 @@ export default function SeaDashboard() {
     const shares = Number(form.get('shares')) || 0
     const postData = { content, topic, format: type, platform: String(form.get('platform') || ''), postingTime: String(form.get('time') || ''), likes, comments: postComments, shares }
     setPending('analysis')
-    log('Hindsight RECALL · checking audience history for post analysis')
+    log('Groq LLM · analyzing post with available audience evidence', 'pending')
     try {
       const result = await requestAgent('analysis', {
         question: `Assess this post using current post history and Hindsight memories. Post and supplied performance: ${JSON.stringify(postData)}`,
@@ -256,8 +255,9 @@ export default function SeaDashboard() {
       if (fields.length !== 5 || fields.some((field) => !field)) throw new Error('The AI response could not be displayed. Please run the analysis again.')
       setMemories(result.memories ?? [])
       setAnalysis(fields.join('|'))
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
-      log('Groq LLM · analyzed post against audience history')
+      if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
+      else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0 })
+      log('Groq LLM · analyzed post using available evidence')
       log(`Analyzed post on “${topic}”`)
       if (likes || postComments || shares) void retainLearning(`User-supplied post performance observation: ${JSON.stringify(postData)}. These engagement numbers are user-provided; retain them as historical evidence without inferring a winning or losing pattern from a single post.`, `performance for “${topic}”`)
     } catch (error) {
@@ -270,7 +270,7 @@ export default function SeaDashboard() {
     const cleaned = lines.map((line) => line.trim()).filter(Boolean).slice(0, 120)
     if (!cleaned.length) { notify('Add a few comments to analyze first'); return }
     setCommentAnalysis(cleaned); setComments(cleaned); setCommentInsight(''); setPending('comment-analysis')
-    log('Hindsight RECALL · checking historical audience context for comment analysis')
+    log('Groq LLM · analyzing comments with available audience evidence', 'pending')
     try {
       const result = await requestAgent('comment-analysis', {
         question: `Analyze these ${cleaned.length} actual audience comments. Identify recurring interests, questions, concerns, and requested content without inventing patterns.`,
@@ -278,8 +278,9 @@ export default function SeaDashboard() {
       })
       setMemories(result.memories ?? [])
       setCommentInsight(result.text ?? '')
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
-      log('Groq LLM · analyzed audience comments with historical context')
+      if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
+      else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
+      log('Groq LLM · analyzed audience comments using available evidence')
       log(`Analyzed ${cleaned.length} audience comments`)
       void retainLearning(`Audience comment sample (${cleaned.length} comments supplied by the workspace user): ${JSON.stringify(cleaned.slice(0, 80))}. These are actual comments; use them as evidence for recurring questions, interests, requested formats, and sentiment patterns.`, `${cleaned.length} audience comments`)
     } catch (error) {
@@ -301,13 +302,14 @@ export default function SeaDashboard() {
     const goal = String(values.get('goal') || 'Increase engagement')
     const brief = `Create a ${type} ${platform} post about ${topic} for ${audience}. Tone: ${tone}. Goal: ${goal}. Return only the finished post.`
     setPending('content')
-    log('Hindsight RECALL · retrieving audience preferences for content', 'pending')
+    log('Groq LLM · generating content with available audience evidence', 'pending')
     try {
       const result = await requestAgent('content', { question: brief, context: currentContext() })
       setDraft(result.text ?? '')
       setMemories(result.memories ?? [])
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
-      log('Groq LLM · generated content using retrieved audience preferences', 'success', { details: result.text })
+      if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
+      else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+      log('Groq LLM · generated content using available evidence', 'success', { details: result.text })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Content generation failed. Try again.'
       log(`Content generation failed · ${message}`, 'error')
@@ -323,13 +325,14 @@ export default function SeaDashboard() {
     setChatInput('')
     setChat((items) => [...items, { role: 'user', text: query }])
     setPending('chat')
-    log('Hindsight RECALL · retrieving relevant audience history', 'pending')
+    log('Groq LLM · responding with available audience evidence', 'pending')
     try {
       const result = await requestAgent('chat', { question: query, context: currentContext() })
       setMemories(result.memories ?? [])
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+      if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
+      else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
       if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
-      log('Groq LLM · generated a memory-grounded response', 'success', { details: result.text })
+      log('Groq LLM · generated a response', 'success', { details: result.text })
       setChat((items) => [...items, { role: 'agent', text: result.text ?? '' }])
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The agent request failed. Try again.'
@@ -343,15 +346,16 @@ export default function SeaDashboard() {
     if (pending) return
     setPending('recommendation')
     setRecommendation('')
-    log('Hindsight RECALL · retrieving historical evidence for a recommendation', 'pending')
+    log('Groq LLM · generating a recommendation with available audience evidence', 'pending')
     try {
       const result = await requestAgent('recommendation', { question: 'What should I post next?', context: currentContext() })
       setRecommendation(result.text ?? '')
       setMemories(result.memories ?? [])
-      log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+      if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
+      else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
       if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
-      log('Groq LLM · generated a memory-grounded recommendation')
-      notify('Recommendation generated from Hindsight and your post history')
+      log('Groq LLM · generated a recommendation using available evidence')
+      notify(result.hindsightWarning ? 'Recommendation generated; Hindsight memory is unavailable' : 'Recommendation generated')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Recommendation generation failed. Try again.'
       log(`Recommendation failed · ${message}`, 'error')
@@ -369,6 +373,7 @@ export default function SeaDashboard() {
     setMemories([])
     let pendingActivityId: string | undefined
     let pendingOperation = 'Groq LLM'
+    let retainWarning = ''
     try {
       pendingActivityId = log('Groq LLM · generating baseline with no Hindsight history', 'pending')
       const before = await requestAgent('learning-demo-before', { question, context: { source: 'learning-demo baseline; no historical posts or comments provided' } })
@@ -377,19 +382,25 @@ export default function SeaDashboard() {
       const learning = `Illustrative Memory Learning Demo dataset (sample data, not real account analytics). Historical posts: ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic/format/time engagement and audience interests/questions from the supplied records. Do not claim these are real account results.`
       pendingOperation = 'Hindsight RETAIN'
       pendingActivityId = log('Hindsight RETAIN · storing sample engagement history', 'pending')
-      await requestAgent('retain', { memory: learning })
-      updateActivity(pendingActivityId, 'Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
+      try {
+        await requestAgent('retain', { memory: learning })
+        updateActivity(pendingActivityId, 'Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
+      } catch (error) {
+        retainWarning = error instanceof Error ? error.message : 'Hindsight could not retain the sample history.'
+        updateActivity(pendingActivityId, `Hindsight RETAIN unavailable · ${retainWarning}`, 'error', { details: learning.slice(0, 500) })
+      }
       pendingActivityId = undefined
-      pendingOperation = 'Hindsight RECALL / REFLECT'
-      pendingActivityId = log('Hindsight RECALL · retrieving the newly stored audience history', 'pending')
-      const after = await requestAgent('recommendation', { question, context: { source: 'learning-demo follow-up; base recommendation on Hindsight memories retrieved for this same question' } })
+      pendingOperation = 'Groq LLM'
+      pendingActivityId = log('Groq LLM · generating follow-up recommendation', 'pending')
+      const after = await requestAgent('recommendation', { question, context: { ...currentContext(), posts: demoPosts, comments: sampleComments, source: 'learning-demo follow-up; use supplied sample posts and comments; use Hindsight memories if available' } })
       setMemories(after.memories ?? [])
-      updateActivity(pendingActivityId, `Hindsight RECALL · ${after.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: after.memories?.length ?? 0, details: after.memories?.slice(0, 3).join(' · ') || 'No relevant memories were returned; Hindsight indexing or bank contents may need attention.' })
+      if (after.hindsightWarning) log(`Hindsight unavailable · ${after.hindsightWarning}`, 'error')
+      else log(`Hindsight RECALL · ${after.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: after.memories?.length ?? 0, details: after.memories?.slice(0, 3).join(' · ') || 'No relevant memories were returned.' })
       pendingActivityId = undefined
       if (after.reflected) log('Hindsight REFLECT · reasoned over retained sample history', 'success', { details: after.reflection || 'Hindsight reflection completed.' })
-      log('Groq LLM · generated the follow-up recommendation from retrieved memory', 'success', { details: after.text })
+      log('Groq LLM · generated the follow-up recommendation from available evidence', 'success', { details: after.text })
       setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories ?? [], reflected: Boolean(after.reflected) })
-      notify(after.memories?.length ? 'Memory Learning Demo complete · Hindsight memories retrieved' : 'Demo complete · Hindsight returned no memories; see activity for details')
+      notify(retainWarning || after.hindsightWarning ? 'Demo complete using sample data; Hindsight credits are unavailable' : 'Memory Learning Demo complete · Hindsight memories retrieved')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The memory-learning demo could not finish.'
       if (pendingActivityId) updateActivity(pendingActivityId, `${pendingOperation} failed · ${message}`, 'error')
