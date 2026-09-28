@@ -170,7 +170,7 @@ export async function POST(request: Request) {
   try {
     if (input.action === 'learning-demo-after') {
       const memoryMarker = typeof input.memoryMarker === 'string' ? input.memoryMarker.trim() : ''
-      if (!/^SEA-AUDIT-[0-9a-f-]{36}$/i.test(memoryMarker)) {
+      if (!/^SOCIAL-NEURON-AUDIT-[0-9a-f-]{36}$/i.test(memoryMarker)) {
         return NextResponse.json({ error: 'A valid audit memory marker is required to verify Hindsight Recall.' }, { status: 400 })
       }
 

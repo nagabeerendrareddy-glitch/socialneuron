@@ -6,8 +6,8 @@ import { auth } from '@/lib/auth'
 import { AuthPageFrame } from '@/components/auth-page-frame'
 
 export const metadata: Metadata = {
-  title: 'Sign in to SEA',
-  description: 'Sign in to your SEA social engagement workspace.',
+  title: 'Sign in to Social Neuron',
+  description: 'Sign in to your Social Neuron audience intelligence workspace.',
 }
 
 export default async function SignInPage() {

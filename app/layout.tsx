@@ -3,25 +3,12 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'SEA — Social Engagement Agent',
-  description: 'Understand your audience, analyze content performance, and create social posts grounded in your engagement history.',
+  title: 'Social Neuron — Audience Intelligence',
+  description: 'Social Neuron helps you understand your audience, analyze content performance, and create social posts grounded in your engagement history.',
   generator: 'v0.app',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/social-neuron-icon.png',
+    apple: '/social-neuron-icon.png',
   },
 }
 

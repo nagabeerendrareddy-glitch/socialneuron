@@ -5,9 +5,9 @@ export function AuthPageFrame({ children }: { children: React.ReactNode }) {
   return (
     <main className="auth-shell">
       <header className="auth-topbar">
-        <Link className="auth-brand" href="/sign-in" aria-label="SEA sign in home">
-          <span className="auth-brand-mark">S</span>
-          <span className="auth-brand-wordmark">SEA<span> / </span>Social Engagement Agent</span>
+        <Link className="auth-brand" href="/sign-in" aria-label="Social Neuron sign-in home">
+          <span className="auth-brand-mark">SN</span>
+          <span className="auth-brand-wordmark">SOCIAL NEURON<span> / </span>AUDIENCE INTELLIGENCE</span>
         </Link>
         <span className="auth-topbar-label"><span /> PRIVATE WORKSPACE</span>
       </header>
@@ -28,7 +28,7 @@ export function AuthPageFrame({ children }: { children: React.ReactNode }) {
         <div className="auth-form-column">{children}</div>
       </div>
 
-      <footer className="auth-footer"><span>SEA · SOCIAL ENGAGEMENT AGENT</span><span>YOUR SIGNAL. YOUR STRATEGY.</span></footer>
+      <footer className="auth-footer"><span>SOCIAL NEURON · AUDIENCE INTELLIGENCE</span><span>YOUR SIGNAL. YOUR STRATEGY.</span></footer>
     </main>
   )
 }

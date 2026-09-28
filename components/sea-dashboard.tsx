@@ -471,7 +471,7 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     const question = 'Using only the imported audience records in Hindsight Recall, identify one supported topic, format, or audience-interest pattern and recommend a next post. Cite the specific recalled evidence. If the records do not support a pattern, say so.'
     const demoProviders: Provider[] = ['groq', 'hindsight']
     const taskKeys = currentProviderKeys(demoProviders)
-    const memoryMarker = `SEA-AUDIT-${crypto.randomUUID()}`
+    const memoryMarker = `SOCIAL-NEURON-AUDIT-${crypto.randomUUID()}`
     const learning = `Verification token for this retained audience snapshot: ${memoryMarker}. Keep this exact token attached to the following user-supplied evidence. ${recordCount} records are included (${auditedPosts.length} posts, ${auditedComments.length} comments). This user-imported data has not been independently verified. Use only these records; do not infer beyond them. Imported posts: ${JSON.stringify(auditedPosts)}. User-supplied comments: ${JSON.stringify(auditedComments)}.`
     setPending('learning-demo-before')
     setDemoResults(null)
@@ -526,7 +526,7 @@ export default function SeaDashboard({ userName }: { userName: string }) {
   return (
     <div className="sea-app">
       <aside className="sea-sidebar" aria-label="Main navigation">
-        <button className="sea-logo" aria-label="SEA dashboard" onClick={() => setPage('dashboard')}>SEA</button>
+        <button className="sea-logo" aria-label="Social Neuron dashboard" title="Social Neuron" onClick={() => setPage('dashboard')}>SN</button>
         <nav className="sea-nav">
           {navigation.map(({ id, label, icon: Icon }) => (
             <button key={id} className={`sea-nav-item ${page === id ? 'is-active' : ''}`} aria-label={label} aria-current={page === id ? 'page' : undefined} title={label} onClick={() => setPage(id)}><Icon /></button>

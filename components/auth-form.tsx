@@ -52,7 +52,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       </div>
       <div className="auth-card-heading">
         <h2 id="auth-title">{isSignUp ? 'Create your account' : 'Welcome back'}</h2>
-        <p>{isSignUp ? 'Set up your SEA workspace to get started.' : 'Sign in to pick up where your audience left off.'}</p>
+        <p>{isSignUp ? 'Set up your Social Neuron workspace to get started.' : 'Sign in to pick up where your audience left off.'}</p>
       </div>
 
       <form className="auth-form" onSubmit={handleSubmit}>
@@ -126,13 +126,13 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         {error && <p className="auth-error" role="alert">{error}</p>}
 
         <button className="auth-submit" type="submit" disabled={loading} aria-busy={loading}>
-          <span>{loading ? (isSignUp ? 'Creating account…' : 'Signing in…') : (isSignUp ? 'Create account' : 'Sign in to SEA')}</span>
+          <span>{loading ? (isSignUp ? 'Creating account…' : 'Signing in…') : (isSignUp ? 'Create account' : 'Sign in to Social Neuron')}</span>
           {!loading && <ArrowRight aria-hidden="true" />}
         </button>
       </form>
 
       <p className="auth-switch">
-        {isSignUp ? 'Already have an account?' : 'New to SEA?'}{' '}
+        {isSignUp ? 'Already have an account?' : 'New to Social Neuron?'}{' '}
         <Link href={isSignUp ? '/sign-in' : '/sign-up'}>
           {isSignUp ? 'Sign in' : 'Create an account'}
         </Link>
