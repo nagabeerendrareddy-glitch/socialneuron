@@ -1,6 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { generateText } from 'ai'
 import { NextResponse } from 'next/server'
+import { formatMetric, formatRate, predictEngagement, predictionDisclaimer, predictionMethod, trainEngagementModel, summarizeTrainingForMemory } from '@/lib/engagement-model'
 import {
   extractMemories,
   extractReflection,
@@ -14,7 +15,7 @@ export const maxDuration = 60
 
 const REQUEST_TIMEOUT_MS = 25_000
 
-type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
+type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
 type AgentInput = {
   action: AgentAction
   question?: string
@@ -67,6 +68,7 @@ function getSystemPrompt(action: AgentAction, memories: string[], reflection: st
   if (action === 'recommendation') return `${common}\n\nReturn these clearly labeled sections: Recommendation, Why, Evidence, Suggested Content, Learning. In Evidence, quote or accurately paraphrase the relevant Hindsight memories. Clearly state when historical evidence is limited.`
   if (action === 'analysis') return `${common}\n\nAssess the supplied post and performance data. Return exactly five concise fields separated by four pipe characters, in this order: hook assessment | call-to-action assessment | topic fit | engagement potential | content type. Do not add pipe characters inside a field. If there is no performance history, say "Historical evidence limited" in topic fit.`
   if (action === 'comment-analysis') return `${common}\n\nAnalyze the supplied audience comments. Summarize repeated interests, questions, concerns, and requested content in a concise paragraph. Ground claims in the actual comments and identify limited evidence if the sample is small.`
+  if (action === 'prediction-chat') return `${common}\n\nExplain the supplied prediction evidence faithfully. Use only the exact aggregate statistics in the request. Clearly call them synthetic cohort-average estimates, mention sample size and filters, and never describe them as live results, causal effects, or guarantees.`
   return `${common}\n\nAnswer the user's question clearly and specifically. For recommendations, include what to post, why, and relevant historical evidence. If no historical memory is available, be useful using only current-session data while explicitly identifying the evidence limitation.`
 }
 
@@ -127,7 +129,7 @@ export async function POST(request: Request) {
   let input: AgentInput
   try {
     const value: unknown = await request.json()
-    const actions: AgentAction[] = ['chat', 'content', 'recommendation', 'analysis', 'comment-analysis', 'retain', 'memory-list', 'learning-demo-before']
+    const actions: AgentAction[] = ['chat', 'prediction-chat', 'train', 'content', 'recommendation', 'analysis', 'comment-analysis', 'retain', 'memory-list', 'learning-demo-before']
     if (!isRecord(value) || !actions.includes(value.action as AgentAction)) {
       return NextResponse.json({ error: 'Choose a supported agent action.' }, { status: 400 })
     }
@@ -140,15 +142,35 @@ export async function POST(request: Request) {
   const providerKeys = getProviderKeys(input.providerKeys)
   const groqApiKey = providerKeys.groq || process.env.GROQ_API_KEY
   const hindsightApiKey = providerKeys.hindsight || process.env.HINDSIGHT_API_KEY
-  if (input.action !== 'retain' && input.action !== 'memory-list' && !question) {
+  if (input.action !== 'retain' && input.action !== 'memory-list' && input.action !== 'train' && !question) {
     return NextResponse.json({ error: 'Add a question or content brief first.' }, { status: 400 })
   }
 
-  if (input.action !== 'retain' && input.action !== 'memory-list' && !groqApiKey) {
+  if (input.action !== 'retain' && input.action !== 'memory-list' && input.action !== 'train' && input.action !== 'prediction-chat' && !groqApiKey) {
     return NextResponse.json({ error: 'Add a Groq API key in Settings or configure the deployment key.' }, { status: 503 })
   }
 
   try {
+    if (input.action === 'train') {
+      const trainingSummary = await trainEngagementModel()
+      let hindsightWarning = ''
+      try {
+        await retainInHindsight([summarizeTrainingForMemory(trainingSummary)], hindsightApiKey)
+      } catch (error) {
+        hindsightWarning = error instanceof Error ? error.message.slice(0, 400) : 'Hindsight could not retain the training summary.'
+      }
+      const leaders = [...trainingSummary.topPlatforms.slice(0, 2).map((item) => `${item.name} (${formatRate(item.engagementRate)})`), ...trainingSummary.topTopics.slice(0, 2).map((item) => `${item.name} (${formatRate(item.engagementRate)})`)]
+      const text = `Training complete: ${trainingSummary.trainingRows.toLocaleString()} synthetic examples analyzed.\n\nTop cohort averages: ${leaders.join(' · ') || 'No category breakdown available.'}\n\n${hindsightWarning ? `The local predictor is ready; long-term Hindsight memory was not updated: ${hindsightWarning}` : 'A compact training summary was saved to Hindsight.'}\n\nThis builds a local statistical cohort estimator from the CSV; it does not fine-tune language-model weights. ${predictionDisclaimer()}`
+      return NextResponse.json({ trained: true, trainingSummary, text, hindsightWarning: hindsightWarning || undefined })
+    }
+
+    if (input.action === 'prediction-chat') {
+      const prediction = await predictEngagement(question)
+      const metrics = prediction.outcome
+      const text = `Dataset-based estimate for ${prediction.filters.length ? prediction.filters.join(' · ') : 'all training examples'}\n\nAverage per post: ${formatMetric(metrics.reach)} reach · ${formatMetric(metrics.likes)} likes · ${formatMetric(metrics.comments)} comments · ${formatMetric(metrics.shares)} shares · ${formatMetric(metrics.saves)} saves\nEstimated engagement rate: ${formatRate(metrics.engagementRate)}\n${prediction.matchedExamples.toLocaleString()} matching rows from ${prediction.trainingRows.toLocaleString()} synthetic training examples.\n\n${prediction.note} ${predictionMethod()} ${predictionDisclaimer()}`
+      return NextResponse.json({ text, prediction })
+    }
+
     if (input.action === 'memory-list') {
       const payload = await recallFromHindsight(
         'Recall the saved audience preferences, interests, questions, engagement observations, high-performing topics and formats, and posting-time patterns learned for this social media workspace.',

@@ -12,8 +12,9 @@ import {
 type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'recs' | 'social' | 'chat' | 'settings'
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
-type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; hindsightWarning?: string; error?: string }
-type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
+type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; trained?: boolean; hindsightWarning?: string; error?: string }
+type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
+type ChatMode = 'normal' | 'prediction'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
 type DemoResults = { before: string; after: string; recalled: string[]; reflected: boolean }
 type Provider = 'groq' | 'hindsight'
@@ -120,6 +121,7 @@ export default function SeaDashboard() {
   const [csvStatus, setCsvStatus] = useState('')
   const [chat, setChat] = useState<Message[]>([])
   const [chatInput, setChatInput] = useState('')
+  const [chatMode, setChatMode] = useState<ChatMode>('normal')
   const [connected, setConnected] = useState<string[]>([])
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [commentAnalysis, setCommentAnalysis] = useState<string[] | null>(null)
@@ -335,21 +337,41 @@ export default function SeaDashboard() {
   async function sendChat(question = chatInput) {
     const query = question.trim()
     if (!query || pending) return
+    const action = chatMode === 'prediction' ? 'prediction-chat' : 'chat'
     setChatInput('')
     setChat((items) => [...items, { role: 'user', text: query }])
-    setPending('chat')
-    log('Groq LLM · responding with available audience evidence', 'pending')
+    setPending(action)
+    log(chatMode === 'prediction' ? 'Dataset predictor · estimating engagement from 5,000 synthetic examples' : 'Groq LLM · responding with available audience evidence', 'pending')
     try {
-      const result = await requestAgent('chat', { question: query, context: currentContext() })
-      setMemories(result.memories ?? [])
-      if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
-      else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
-      if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
-      log('Groq LLM · generated a response', 'success', { details: result.text })
+      const result = await requestAgent(action, { question: query, context: currentContext() })
+      if (chatMode === 'normal') {
+        setMemories(result.memories ?? [])
+        if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
+        else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
+        if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
+      }
+      log(chatMode === 'prediction' ? 'Dataset predictor · returned a cohort-based estimate' : 'Groq LLM · generated a response', 'success', { details: result.text })
       setChat((items) => [...items, { role: 'agent', text: result.text ?? '' }])
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The agent request failed. Try again.'
       log(`Agent request failed · ${message}`, 'error')
+      setChat((items) => [...items, { role: 'agent', text: message }])
+    } finally {
+      setPending(null)
+    }
+  }
+  async function trainPredictor() {
+    if (pending) return
+    setPending('train')
+    log('Local predictor · summarizing the 5,000 synthetic training examples', 'pending')
+    try {
+      const result = await requestAgent('train')
+      setChat((items) => [...items, { role: 'agent', text: result.text ?? 'Training data is ready.' }])
+      log('Local predictor · training summary ready', 'success', { details: result.text })
+      if (result.hindsightWarning) log(`Hindsight retention unavailable · ${result.hindsightWarning}`, 'error')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Training data could not be loaded.'
+      log(`Predictor training failed · ${message}`, 'error')
       setChat((items) => [...items, { role: 'agent', text: message }])
     } finally {
       setPending(null)
@@ -456,7 +478,7 @@ export default function SeaDashboard() {
           {page === 'knowledge' && <AudienceKnowledge posts={posts} topics={topics} comments={comments} memories={learnedMemories} isLoadingMemories={isLoadingHindsightMemories} memoryError={hindsightMemoryError?.message} />}
           {page === 'recs' && <Recommendations recommendation={recommendation} isGenerating={pending === 'recommendation'} onGenerate={generateRecommendation} />}
           {page === 'social' && <SocialAccounts count={posts.length} connected={connected} setConnected={setConnected} onCsv={() => setCsvOpen(true)} onDemo={loadDemo} />}
-          {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} isSending={pending === 'chat'} onSend={sendChat} />}
+          {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} mode={chatMode} onModeChange={setChatMode} isSending={pending === 'chat' || pending === 'prediction-chat'} isTraining={pending === 'train'} onSend={sendChat} onTrain={trainPredictor} />}
           {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={learnedMemories.length} activeProviderKeys={activeProviderKeys} onSaveProviderKey={(provider, key) => { setSessionProviderKey(provider, key); setActiveProviderKeys((current) => ({ ...current, [provider]: true })); if (provider === 'hindsight') void refreshHindsightMemories(); notify(`${provider === 'groq' ? 'Groq' : 'Hindsight'} key updated for this browser session`) }} onResetProviderKey={(provider) => { clearSessionProviderKey(provider); setActiveProviderKeys((current) => ({ ...current, [provider]: false })); notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`) }} onClear={clearData} />}
         </main>
       </div>
@@ -633,12 +655,17 @@ function SocialAccounts({ count, connected, setConnected, onCsv, onDemo }: { cou
   </>
 }
 
-function AgentChat({ messages, input, setInput, isSending, onSend }: { messages: Message[]; input: string; setInput: (value: string) => void; isSending: boolean; onSend: (query?: string) => void }) {
-  const suggestions = ['What should I post next?', 'What questions does my audience ask most?', 'Why do my best posts perform well?', 'Write a LinkedIn post about AI automation']
-  return <><PageTitle>Agent Chat</PageTitle><section className="chat-card"><div className="chat-intro"><div className="chat-bot-icon"><Bot /></div><div><h2>Ask your audience anything.</h2><p>The agent checks Hindsight first and identifies when historical evidence is limited.</p></div></div>
-    {!messages.length && <div className="suggestion-grid">{suggestions.map((suggestion) => <button className="suggestion-chip" key={suggestion} disabled={isSending} onClick={() => onSend(suggestion)}>{suggestion}<ArrowUpRight /></button>)}</div>}
-    {!!messages.length && <div className="chat-transcript" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}><div className="chat-message-icon">{message.role === 'agent' ? <Bot /> : 'Y'}</div><p>{message.text}</p></div>)}{isSending && <p className="chat-status" role="status">Recalling Hindsight memory and asking Groq…</p>}</div>}
-    <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); onSend() }}><label className="visually-hidden" htmlFor="agent-prompt">Ask the agent a question</label><input id="agent-prompt" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about your audience, content, or next post…" disabled={isSending} /><button className="button-primary send-button" type="submit" aria-label="Send message" disabled={isSending || !input.trim()}><Send /></button></form>
+function AgentChat({ messages, input, setInput, mode, onModeChange, isSending, isTraining, onSend, onTrain }: { messages: Message[]; input: string; setInput: (value: string) => void; mode: ChatMode; onModeChange: (mode: ChatMode) => void; isSending: boolean; isTraining: boolean; onSend: (query?: string) => void; onTrain: () => void }) {
+  const suggestions = mode === 'prediction'
+    ? ['Estimate engagement for Instagram AI content', 'Predict reach for LinkedIn educational posts', 'Compare the strongest topics and formats']
+    : ['What should I post next?', 'What questions does my audience ask most?', 'Why do my best posts perform well?', 'Write a LinkedIn post about AI automation']
+  const busy = isSending || isTraining
+  return <><PageTitle>Agent Chat</PageTitle><section className="chat-card"><div className="chat-intro"><div className="chat-bot-icon"><Bot /></div><div><h2>{mode === 'prediction' ? 'Estimate post engagement.' : 'Ask your audience anything.'}</h2><p>{mode === 'prediction' ? 'Filter 5,000 synthetic CSV-derived examples for transparent per-post estimates.' : 'Normal chat uses Groq with optional Hindsight memory for open-ended social strategy.'}</p></div></div>
+    <div className="chat-mode-row" role="group" aria-label="Choose chat mode"><button type="button" className={`chat-mode-button ${mode === 'normal' ? 'active' : ''}`} aria-pressed={mode === 'normal'} onClick={() => onModeChange('normal')}>Normal chat</button><button type="button" className={`chat-mode-button ${mode === 'prediction' ? 'active' : ''}`} aria-pressed={mode === 'prediction'} onClick={() => onModeChange('prediction')}>Prediction chat</button><span className="chat-mode-spacer" /><button type="button" className="train-button" onClick={onTrain} disabled={busy}>{isTraining ? 'Training…' : 'Train on 5,000 examples'}</button></div>
+    <div className="training-note">Training set: reproducible synthetic variations based on the supplied CSV; this computes cohort statistics and does not fine-tune model weights. <a href="/social-media-engagement-training-5000.csv" download>Download dataset</a></div>
+    {!messages.length && <div className="suggestion-grid">{suggestions.map((suggestion) => <button className="suggestion-chip" key={suggestion} disabled={busy} onClick={() => onSend(suggestion)}>{suggestion}<ArrowUpRight /></button>)}</div>}
+    {!!messages.length && <div className="chat-transcript" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}><div className="chat-message-icon">{message.role === 'agent' ? <Bot /> : 'Y'}</div><p>{message.text}</p></div>)}{busy && <p className="chat-status" role="status">{isTraining ? 'Analyzing the synthetic training set…' : mode === 'prediction' ? 'Filtering training examples and calculating cohort averages…' : 'Recalling available memory and asking Groq…'}</p>}</div>}
+    <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); onSend() }}><label className="visually-hidden" htmlFor="agent-prompt">{mode === 'prediction' ? 'Describe a post to estimate' : 'Ask the agent a question'}</label><input id="agent-prompt" value={input} onChange={(event) => setInput(event.target.value)} placeholder={mode === 'prediction' ? 'Platform, topic, format, or posting time…' : 'Ask about your audience, content, or next post…'} disabled={busy} /><button className="button-primary send-button" type="submit" aria-label="Send message" disabled={busy || !input.trim()}><Send /></button></form>
   </section></>
 }
 

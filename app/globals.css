@@ -252,6 +252,15 @@ textarea.form-control { min-height: 165px; resize: vertical; line-height: 1.5; }
 .chat-bot-icon svg { width: 21px; }
 .chat-intro h2 { margin: 0 0 5px; font-size: 15px; }
 .chat-intro p { margin: 0; color: var(--muted); font-size: 12px; }
+.chat-mode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(13,19,28,.72); }
+.chat-mode-button, .train-button { min-height: 34px; padding: 0 11px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+.chat-mode-button.active { border-color: rgba(0,229,216,.32); background: rgba(0,229,216,.1); color: var(--cyan); }
+.chat-mode-spacer { flex: 1; }
+.train-button { border-color: var(--border); color: #e4ebf5; }
+.train-button:hover:not(:disabled) { border-color: var(--cyan-deep); }
+.train-button:disabled { cursor: wait; opacity: .65; }
+.training-note { margin: 9px 1px 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.training-note a { margin-left: 5px; color: var(--cyan); text-decoration: underline; text-underline-offset: 2px; }
 .suggestion-grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 9px; margin: 18px 0 22px; }
 .suggestion-chip { display: inline-flex; align-items: center; gap: 10px; min-height: 41px; padding: 0 12px; border: 1px solid var(--border); border-radius: 7px; background: #121a26; color: #e7edf7; font-size: 12px; cursor: pointer; text-align: left; }
 .suggestion-chip svg { width: 13px; height: 13px; color: #8095ae; }

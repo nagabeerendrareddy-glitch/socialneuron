@@ -2041,10 +2041,6 @@ export function getTrainingCSVPath() {
   return TRAINING_CSV_PATH
 }
 
-export function getTrainingPromptSummary(records: EngagementRecord[]) {
-  return buildTrainingSummary(records)
-}
-
 export function getPredictionContextString(scenario: unknown, prediction: EngagementPrediction) {
   return buildAgentPredictionContext(scenario, prediction)
 }
@@ -2211,10 +2207,6 @@ export function getTrainingDataRoot() {
 
 export function getPredictionFallback(prediction: EngagementPrediction) {
   return getPredictionFallbackText(prediction)
-}
-
-export function getTrainingRecordCountString() {
-  return TRAINING_RECORD_COUNT.toLocaleString()
 }
 
 export function getTrainingDatasetForAgent() {
@@ -2399,10 +2391,6 @@ export function getTrainingFileStatus() {
 
 export function getTrainingFilesInfo() {
   return { source: getTrainingSourceCsvName(), generated: getTrainingOutputCsvName(), count: TRAINING_RECORD_COUNT }
-}
-
-export function getTrainingSourceCsvName() {
-  return 'social-media-engagement-source.csv'
 }
 
 export function getTrainingTrainingFilePath() {
