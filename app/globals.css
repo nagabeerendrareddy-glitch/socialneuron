@@ -323,6 +323,8 @@ textarea.form-control { min-height: 165px; resize: vertical; line-height: 1.5; }
 .activity-verdict strong { color: #fcd34d; font-size: 13px; letter-spacing: .04em; }
 .activity-verdict.is-ready { border-color: rgba(6,217,148,.35); background: rgba(6,217,148,.06); }
 .activity-verdict.is-ready strong { color: var(--green); }
+.activity-verdict.is-blocked { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.07); }
+.activity-verdict.is-blocked strong { color: #fca5a5; }
 .activity-audit-columns { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 14px; }
 .activity-audit-columns > section, .activity-memory-proof { min-width: 0; padding: 11px 12px; border: 1px solid rgba(41,54,74,.8); border-radius: 7px; background: rgba(16,23,34,.68); }
 .activity-audit h3 { margin: 0; color: #e9eef7; font-size: 11px; }

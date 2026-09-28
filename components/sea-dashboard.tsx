@@ -38,7 +38,7 @@ function getSessionProviderKeyCount(provider: Provider) {
   return sessionProviderKeys[provider].length
 }
 
-function nextProviderKeys(providers: Provider[]): ProviderKeys {
+function currentProviderKeys(providers: Provider[]): ProviderKeys {
   const selected: ProviderKeys = {}
   for (const provider of providers) {
     const keys = sessionProviderKeys[provider]
@@ -49,19 +49,37 @@ function nextProviderKeys(providers: Provider[]): ProviderKeys {
     } else {
       selected.groq = keys[index]
     }
-    providerKeyCursor[provider] = (index + 1) % keys.length
   }
   return selected
 }
 
-async function requestAgent(action: AgentAction, payload: Record<string, unknown> = {}): Promise<AgentResult> {
+function advanceProviderKeys(providers: Provider[]) {
+  for (const provider of providers) {
+    const keys = sessionProviderKeys[provider]
+    if (keys.length) providerKeyCursor[provider] = (providerKeyCursor[provider] + 1) % keys.length
+  }
+}
+
+function nextProviderKeys(providers: Provider[]): ProviderKeys {
+  const selected = currentProviderKeys(providers)
+  advanceProviderKeys(providers)
+  return selected
+}
+
+async function requestAgent(action: AgentAction, payload: Record<string, unknown> = {}, taskKeys?: ProviderKeys): Promise<AgentResult> {
   const providers: Provider[] = []
   if (!['prediction-chat', 'train', 'retain', 'memory-list'].includes(action)) providers.push('groq')
   if (!['prediction-chat', 'learning-demo-before'].includes(action)) providers.push('hindsight')
+  const providerKeys = taskKeys
+    ? {
+        ...(providers.includes('groq') && taskKeys.groq ? { groq: taskKeys.groq } : {}),
+        ...(providers.includes('hindsight') && taskKeys.hindsight?.length ? { hindsight: taskKeys.hindsight } : {}),
+      }
+    : nextProviderKeys(providers)
   const response = await fetch('/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...payload, providerKeys: nextProviderKeys(providers) }),
+    body: JSON.stringify({ action, ...payload, providerKeys }),
   })
   const result = await response.json().catch(() => ({})) as AgentResult
   if (!response.ok) throw new Error(result.error || 'The agent request failed. Try again.')
@@ -141,6 +159,7 @@ export default function SeaDashboard() {
   const [memories, setMemories] = useState<string[]>([])
   const [activity, setActivity] = useState<ActivityEntry[]>([{ id: 'workspace-ready', message: 'Workspace ready · import history or load demo data', timestamp: new Date().toISOString(), operation: 'WORKSPACE', status: 'success' }])
   const [demoResults, setDemoResults] = useState<DemoResults | null>(null)
+  const [demoError, setDemoError] = useState('')
   const [activityOpen, setActivityOpen] = useState(false)
   const [csvOpen, setCsvOpen] = useState(false)
   const [csv, setCsv] = useState('')
@@ -231,13 +250,19 @@ export default function SeaDashboard() {
   }
   async function retainLearning(memory: string, description: string) {
     const activityId = log('Hindsight RETAIN · sending audience learning', 'pending')
+    const providers: Provider[] = ['hindsight']
+    const taskKeys = currentProviderKeys(providers)
     try {
-      await requestAgent('retain', { memory })
-      await refreshHindsightMemories()
+      await requestAgent('retain', { memory }, taskKeys)
+      const refreshed = await requestAgent('memory-list', {}, taskKeys)
+      setMemories(refreshed.memories ?? [])
+      await refreshHindsightMemories(refreshed, { revalidate: false })
       updateActivity(activityId, `Hindsight RETAIN · ${description} stored in the social-media-agent bank`, 'success', { details: memory.slice(0, 900) })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Hindsight could not store this learning.'
       updateActivity(activityId, `Hindsight RETAIN unavailable · ${message}`, 'error', { details: memory.slice(0, 500) })
+    } finally {
+      advanceProviderKeys(providers)
     }
   }
   function loadDemo() {
@@ -429,28 +454,31 @@ export default function SeaDashboard() {
     if (pending) return
     const question = 'What should I post next for the SEA Hindsight demo cohort, and why?'
     const demoPosts = makeSamplePosts()
+    const demoProviders: Provider[] = ['groq', 'hindsight']
+    const taskKeys = currentProviderKeys(demoProviders)
     const memoryMarker = `SEA-DEMO-${crypto.randomUUID()}`
     setPending('learning-demo-before')
     setDemoResults(null)
+    setDemoError('')
     setMemories([])
     let pendingActivityId: string | undefined
     let pendingOperation = 'Groq LLM'
     try {
       pendingActivityId = log('Groq LLM · generating baseline with no Hindsight Recall or sample history', 'pending')
-      const before = await requestAgent('learning-demo-before', { question, context: { source: 'No current-session post history or comments supplied.' } })
+      const before = await requestAgent('learning-demo-before', { question, context: { source: 'No current-session post history or comments supplied.' } }, taskKeys)
       updateActivity(pendingActivityId, 'Groq LLM · generated baseline with no Hindsight Recall or sample history', 'success', { details: before.text })
       pendingActivityId = undefined
 
       const learning = `Memory proof marker: ${memoryMarker}. SEA Hindsight demo cohort: sample audience of early-career developers interested in practical automation. Illustrative sample posts (not real account analytics): ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Illustrative audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic, format, posting-time performance, and audience interests from these records. Do not claim these are real account results.`
       pendingOperation = 'Hindsight RETAIN'
       pendingActivityId = log('Hindsight RETAIN · storing sample history and unique proof marker', 'pending')
-      await requestAgent('retain', { memory: learning })
+      await requestAgent('retain', { memory: learning }, taskKeys)
       updateActivity(pendingActivityId, 'Hindsight RETAIN · Hindsight accepted the sample history and proof marker', 'success', { details: learning.slice(0, 900) })
       pendingActivityId = undefined
 
       pendingOperation = 'Hindsight RECALL verification'
       pendingActivityId = log('Hindsight RECALL · verifying the exact memory saved in this run', 'pending')
-      const after = await requestAgent('learning-demo-after', { question, memoryMarker })
+      const after = await requestAgent('learning-demo-after', { question, memoryMarker }, taskKeys)
       if (!after.retainedMemoryVerified || !after.memories?.some((memory) => memory.includes(memoryMarker))) {
         throw new Error('Hindsight Recall did not verify this run’s retained memory. The follow-up is not shown as a successful demo.')
       }
@@ -462,10 +490,12 @@ export default function SeaDashboard() {
       notify('Verified memory demo complete · Hindsight Recall changed the evidence available to the agent')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The memory-learning demo could not finish.'
+      setDemoError(message)
       if (pendingActivityId) updateActivity(pendingActivityId, `${pendingOperation} failed · ${message}`, 'error')
       log(`Memory Learning Demo stopped · ${message}`, 'error')
       notify(message)
     } finally {
+      advanceProviderKeys(demoProviders)
       setPending(null)
     }
   }
@@ -474,6 +504,7 @@ export default function SeaDashboard() {
   }
 
   const responseChanged = Boolean(demoResults?.verified && demoResults.before.trim() !== demoResults.after.trim())
+  const verdict = responseChanged ? 'READY' : demoError ? 'PROOF BLOCKED' : demoResults?.verified ? 'NEEDS FIXES' : pending === 'learning-demo-before' ? 'RUNNING' : 'AWAITING PROOF'
 
   return (
     <div className="sea-app">
@@ -520,9 +551,9 @@ export default function SeaDashboard() {
                 <h2 id="activity-audit-title">Hindsight submission audit</h2>
                 <p>Verified against the running retain → recall → response flow, not a README claim.</p>
               </div>
-              <div className={`activity-verdict ${demoResults?.verified ? 'is-ready' : 'needs-proof'}`} aria-live="polite">
+              <div className={`activity-verdict ${responseChanged ? 'is-ready' : demoError ? 'is-blocked' : 'needs-proof'}`} aria-live="polite">
                 <span>VERDICT</span>
-                <strong>{responseChanged ? 'READY' : 'NEEDS FIXES'}</strong>
+                <strong>{verdict}</strong>
               </div>
             </div>
 
@@ -538,10 +569,10 @@ export default function SeaDashboard() {
               <section>
                 <h3>What is missing / at risk</h3>
                 <ul>
-                  <li>{responseChanged ? 'The verified run uses an illustrative demo cohort; import real audience history before making claims about a specific account.' : demoResults?.verified ? 'Recall returned the marker, but the before/after answers are identical; a visible response improvement is not demonstrated.' : 'A live, verified memory round-trip has not been recorded in this session yet.'}</li>
+                  <li>{responseChanged ? 'The verified run uses an illustrative demo cohort; import real audience history before making claims about a specific account.' : demoError ? `The live proof is blocked: ${demoError}` : demoResults?.verified ? 'Recall returned the marker, but the before/after answers are identical; a visible response improvement is not demonstrated.' : 'A live, verified memory round-trip has not been recorded in this session yet.'}</li>
                   <li>Demo posts and comments are illustrative, not real account metrics. A changed answer still needs human review to confirm it is better and grounded in recalled evidence.</li>
                 </ul>
-                <p className="activity-fix"><strong>Most important fix:</strong> {responseChanged ? 'replace illustrative examples with imported audience history and review the recalled evidence before submission.' : demoResults?.verified ? 'make the follow-up demonstrably use recalled facts, then rerun with imported audience history.' : 'run the proof with configured provider keys, then verify that Recall changes the same-question response.'}</p>
+                <p className="activity-fix"><strong>Most important fix:</strong> {responseChanged ? 'replace illustrative examples with imported audience history and review the recalled evidence before submission.' : demoError ? 'check the provider key and available credits in Settings, then rerun the proof.' : demoResults?.verified ? 'make the follow-up demonstrably use recalled facts, then rerun with imported audience history.' : 'run the proof with configured provider keys, then verify that Recall changes the same-question response.'}</p>
               </section>
             </div>
 
@@ -557,7 +588,7 @@ export default function SeaDashboard() {
                 </div>
                 <p className="activity-proof-marker">Verified marker: <code>{demoResults.memoryMarker}</code></p>
                 {demoResults.recalled.length > 0 && <details className="activity-recalled-evidence"><summary>Show recalled evidence ({demoResults.recalled.length})</summary><p>{demoResults.recalled.join(' · ')}</p></details>}
-              </> : <p className="activity-proof-empty">No before/after proof is shown until Hindsight returns the exact memory marker. Run the check to record a real retain → later recall → response sequence.</p>}
+              </> : <p className="activity-proof-empty">{demoError ? `Live proof failed: ${demoError}` : 'No before/after proof is shown until Hindsight returns the exact memory marker. Run the check to record a real retain → later recall → response sequence.'}</p>}
               <button className="activity-audit-run" onClick={() => { setActivityOpen(true); void runLearningDemo() }} disabled={Boolean(pending)}>
                 <Brain />{pending === 'learning-demo-before' ? 'Running verified memory proof…' : demoResults?.verified ? 'Run proof again' : 'Run verified memory proof'}
               </button>
@@ -778,8 +809,8 @@ function SettingsPage({ count, comments, memories, activeProviderKeys, activePro
       <div className="credential-actions"><button className="button-secondary" type="button" onClick={() => addKeySlot(values, setValues)} disabled={values.length >= 10}>Add another key</button><button className="button-primary" type="submit" disabled={!values.some((key) => key.trim())}>Save {providerName} rotation</button>{isActive && <button className="button-secondary" type="button" onClick={() => onResetProviderKey(provider)}>Use deployment key</button>}</div>
     </form>
   }
-  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Add multiple Groq and Hindsight keys. Hindsight tries every saved key in round-robin order for each task, then uses the deployment key as a fallback. Keys stay in this tab&apos;s memory only and are never saved to browser storage.</p><div className="credential-list">
+  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Add multiple Groq and Hindsight keys. Each task keeps its selected key for all related provider calls, then advances to the next key for the next task. Keys stay in this tab&apos;s memory only and are never saved to browser storage.</p><div className="credential-list">
     {providerForm('groq', groqKeys, setGroqKeys)}
     {providerForm('hindsight', hindsightKeys, setHindsightKeys)}
-  </div><p className="credential-notice">Keys are sent to this app&apos;s server only when making provider requests. Hindsight tries saved keys sequentially on credit, quota, or authentication errors, then falls back to the deployment key. Rotation is session-only and resets when this tab reloads or closes.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
+  </div><p className="credential-notice">Keys are sent to this app&apos;s server only when making provider requests. A task uses one starting key across its related calls so retain and recall stay on the same Hindsight account. On a credit, quota, or authentication error, Hindsight can try the remaining keys and then the deployment key. Rotation is session-only and resets when this tab reloads or closes.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
 }
