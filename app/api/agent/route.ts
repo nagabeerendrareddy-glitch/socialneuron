@@ -1,6 +1,8 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { generateText } from 'ai'
 import { NextResponse } from 'next/server'
+import { headers } from 'next/headers'
+import { auth } from '@/lib/auth'
 import { formatMetric, formatRate, predictEngagement, predictionDisclaimer, predictionMethod, trainEngagementModel, summarizeTrainingForMemory } from '@/lib/engagement-model'
 import {
   extractMemories,
@@ -131,6 +133,11 @@ async function generateWithGroq(action: AgentAction, question: string, context: 
 }
 
 export async function POST(request: Request) {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Sign in to continue.' }, { status: 401 })
+  }
+
   const contentLength = Number(request.headers.get('content-length') || 0)
   if (contentLength > 512_000) {
     return NextResponse.json({ error: 'Request context is too large.' }, { status: 413 })

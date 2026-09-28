@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
+import { SignOutButton } from '@/components/sign-out-button'
 import {
   ArrowDownToLine, ArrowRight, ArrowUpRight, Bot, Brain, BriefcaseBusiness,
   Check, ChevronDown, ChevronUp, CircleHelp, FileSearch, FlaskConical, Gauge,
@@ -152,7 +153,7 @@ function parseCsvLine(line: string) {
   return line.match(/("(?:[^"]|"")*"|[^,]*)(,|$)/g)?.filter(Boolean).map((cell) => cell.replace(/,$/, '').replace(/^"|"$/g, '').replace(/""/g, '"')) ?? []
 }
 
-export default function SeaDashboard() {
+export default function SeaDashboard({ userName }: { userName: string }) {
   const [page, setPage] = useState<PageId>('dashboard')
   const [posts, setPosts] = useState<Post[]>([])
   const [comments, setComments] = useState<string[]>([])
@@ -539,6 +540,7 @@ export default function SeaDashboard() {
           <button className="brand-switch" onClick={() => notify('Tech Innovators Co. workspace')} aria-label="Current workspace: Tech Innovators Co.">Tech Innovators Co. <ChevronDown /></button>
           <div className="memory-badge"><span className="memory-dot" /><span className="memory-name">HINDSIGHT CLOUD</span><span className="memory-engine"><b>{activity.filter((entry) => entry.operation === 'RECALL' && entry.status === 'success').length}</b> RECALLS</span></div>
           <div className="top-spacer" />
+          <SignOutButton name={userName} />
           <button className="button-primary import-top" onClick={() => { setCsvOpen(true); setCsvStatus('') }}><Upload /> <span>Import CSV</span></button>
         </header>
 
