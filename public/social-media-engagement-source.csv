@@ -1,0 +1,201 @@
+date,time,platform,content,topic,type,likes,comments,shares,saves,reach
+2026-02-27,10:00,LinkedIn,Python tricks that save coding time,Python,Promotional,1607,143,168,139,49348
+2026-02-17,20:30,Instagram,How AI is changing the way we work,AI,Promotional,775,50,105,191,19446
+2026-03-23,10:00,Facebook,Ways to grow your online audience,Marketing,Informational,696,51,55,108,27059
+2026-05-16,09:30,Instagram,Learn Python functions with simple examples,Python,Entertainment,3720,437,385,874,46198
+2026-01-24,12:00,Facebook,How to create engaging social media posts,Marketing,Educational,1151,111,92,185,29911
+2026-04-18,20:00,Instagram,Simple marketing strategies for beginners,Marketing,Promotional,634,40,89,146,15708
+2026-04-23,08:30,Instagram,Simple marketing strategies for beginners,Marketing,Promotional,1008,59,144,274,31290
+2026-06-11,10:30,X,Beginner guide to artificial intelligence,AI,Entertainment,412,37,28,85,14150
+2026-07-24,09:00,LinkedIn,New product update is now available,Product,Entertainment,357,19,41,75,12185
+2026-07-17,20:00,X,Important skills every student should learn,Education,Informational,1868,189,185,259,49583
+2026-06-24,19:00,X,Python tricks that save coding time,Python,Promotional,745,80,71,77,22261
+2026-06-02,17:00,LinkedIn,Content ideas that attract more viewers,Marketing,Promotional,1539,189,217,325,40348
+2026-09-08,12:00,Facebook,5 Python tips every beginner should know,Python,Informational,1224,153,60,228,20785
+2026-02-05,20:00,LinkedIn,How technology is changing daily life,Technology,Entertainment,1034,97,151,294,22370
+2026-04-13,19:30,X,Simple marketing strategies for beginners,Marketing,Informational,298,13,12,60,12930
+2026-04-23,09:00,Instagram,5 Python tips every beginner should know,Python,Promotional,639,39,72,81,26654
+2026-03-09,19:30,X,Content ideas that attract more viewers,Marketing,Promotional,236,23,18,40,17478
+2026-01-28,17:00,Instagram,Social media tips for better engagement,Marketing,Entertainment,1060,93,58,127,21295
+2026-08-25,08:00,X,AI tools that save you 10 hours a week,AI,Educational,566,65,32,105,11112
+2026-04-20,08:30,LinkedIn,Simple study tips for better results,Education,Entertainment,1436,158,102,334,22380
+2026-09-07,08:00,Facebook,How AI is changing the way we work,AI,Promotional,448,41,42,119,25552
+2026-03-22,09:00,Instagram,Top Python mistakes beginners make,Python,Promotional,2816,214,404,578,49250
+2026-01-21,14:00,X,Technology trends to watch this year,Technology,Informational,1835,112,153,417,48891
+2026-06-03,19:00,Instagram,Best learning habits for students,Education,Educational,671,57,36,105,9801
+2026-02-05,19:30,Facebook,5 useful AI tools for students,AI,Promotional,2107,237,206,478,45086
+2026-06-03,09:00,LinkedIn,Social media tips for better engagement,Marketing,Informational,963,62,60,149,41256
+2026-05-16,09:30,Facebook,Beginner guide to modern technology,Technology,Educational,622,43,33,183,23132
+2026-03-24,09:00,X,Ways to grow your online audience,Marketing,Educational,552,63,57,62,14768
+2026-03-07,17:00,Facebook,Python tricks that save coding time,Python,Educational,1843,90,231,505,49699
+2026-07-28,10:30,LinkedIn,How technology is changing daily life,Technology,Promotional,118,14,14,20,6624
+2026-05-08,08:30,Instagram,New product update is now available,Product,Entertainment,986,120,77,256,19577
+2026-04-27,17:30,LinkedIn,AI tools that save you 10 hours a week,AI,Entertainment,630,41,69,105,9549
+2026-06-19,21:30,Facebook,5 Python tips every beginner should know,Python,Promotional,143,11,17,21,7507
+2026-09-19,08:30,LinkedIn,Learn Python functions with simple examples,Python,Informational,185,20,21,53,5110
+2026-04-11,21:30,Instagram,How our new feature improves productivity,Product,Informational,3724,390,271,551,48475
+2026-07-29,12:30,Facebook,How our new feature improves productivity,Product,Promotional,2203,222,306,474,48576
+2026-06-04,14:00,Instagram,Important skills every student should learn,Education,Informational,2431,229,183,430,33173
+2026-04-20,14:30,LinkedIn,Beginner guide to modern technology,Technology,Educational,604,64,68,78,11120
+2026-04-12,19:00,Instagram,AI tools that save you 10 hours a week,AI,Promotional,1338,129,82,312,34846
+2026-09-11,09:30,LinkedIn,How to learn technical skills faster,Education,Educational,539,68,52,49,19341
+2026-05-08,20:30,LinkedIn,Learn Python functions with simple examples,Python,Entertainment,1702,178,162,447,34004
+2026-08-17,12:30,X,Beginner guide to artificial intelligence,AI,Informational,1190,73,105,282,39163
+2026-05-01,10:00,Facebook,See what is new in our latest release,Product,Educational,880,47,55,150,20155
+2026-06-19,12:30,X,Beginner guide to modern technology,Technology,Educational,1533,141,178,411,30524
+2026-07-14,18:30,Facebook,Simple study tips for better results,Education,Informational,2147,191,228,275,40272
+2026-04-23,18:30,X,How our new feature improves productivity,Product,Educational,2058,157,119,376,48835
+2026-03-07,21:00,Instagram,The future of technology explained,Technology,Entertainment,864,45,78,78,10501
+2026-07-14,17:30,X,New product update is now available,Product,Informational,898,103,60,88,23235
+2026-01-10,12:00,Instagram,Content ideas that attract more viewers,Marketing,Informational,1469,62,98,388,47713
+2026-03-20,21:00,X,How AI is changing the way we work,AI,Educational,1521,165,88,324,35476
+2026-02-28,14:30,Instagram,5 useful AI tools for students,AI,Educational,2948,170,309,774,30995
+2026-05-05,17:30,Instagram,Python tricks that save coding time,Python,Educational,2778,237,215,741,48353
+2026-09-08,10:30,Facebook,Learn Python functions with simple examples,Python,Entertainment,1102,139,76,284,16543
+2026-09-05,12:00,Facebook,5 ways to improve your study routine,Education,Informational,1374,85,125,294,23279
+2026-07-14,10:30,X,Our new dashboard feature is live,Product,Informational,498,31,35,105,18901
+2026-05-22,12:30,LinkedIn,Technology trends to watch this year,Technology,Educational,1611,99,148,381,37019
+2026-08-18,18:00,Facebook,5 Python tips every beginner should know,Python,Promotional,919,67,92,143,25067
+2026-06-19,14:00,Facebook,How our new feature improves productivity,Product,Informational,673,46,81,194,12907
+2026-04-05,21:30,X,How AI is changing the way we work,AI,Informational,476,31,37,69,11588
+2026-03-06,10:30,Instagram,Our new dashboard feature is live,Product,Informational,917,84,84,162,11723
+2026-04-05,09:30,X,Python tricks that save coding time,Python,Educational,764,73,35,86,37227
+2026-06-05,21:00,Instagram,Easy Python projects for students,Python,Entertainment,2487,302,180,520,39247
+2026-08-08,12:00,Instagram,Product update: new tools for users,Product,Educational,1711,92,101,165,22343
+2026-01-02,08:00,X,5 ways to improve your study routine,Education,Informational,889,91,79,205,23881
+2026-05-16,09:00,LinkedIn,Content ideas that attract more viewers,Marketing,Entertainment,1385,88,77,128,47443
+2026-06-07,09:30,Facebook,The future of technology explained,Technology,Entertainment,1614,201,153,304,24928
+2026-02-11,21:30,X,Technology trends to watch this year,Technology,Informational,122,15,16,25,6695
+2026-01-11,19:30,Instagram,Simple marketing strategies for beginners,Marketing,Promotional,664,61,72,124,23229
+2026-02-16,17:00,X,Best learning habits for students,Education,Informational,398,40,28,114,15539
+2026-01-19,17:00,Facebook,Simple study tips for better results,Education,Informational,1837,209,73,498,31488
+2026-08-25,21:30,LinkedIn,Simple study tips for better results,Education,Informational,1543,68,107,167,45986
+2026-05-28,21:00,Instagram,5 ways to improve your study routine,Education,Educational,822,33,69,106,15379
+2026-02-28,14:30,LinkedIn,Simple study tips for better results,Education,Entertainment,1935,248,129,389,32229
+2026-07-16,14:30,LinkedIn,Latest AI trends you should know,AI,Educational,1613,138,210,229,27274
+2026-06-02,19:30,X,The future of technology explained,Technology,Promotional,523,56,42,149,27618
+2026-04-07,18:00,X,How to create engaging social media posts,Marketing,Promotional,732,75,94,120,25852
+2026-03-19,09:30,LinkedIn,Simple study tips for better results,Education,Informational,421,34,50,71,11534
+2026-03-21,21:30,Facebook,Learn Python functions with simple examples,Python,Informational,1180,82,134,232,47587
+2026-06-12,12:30,Instagram,Ways to grow your online audience,Marketing,Educational,1638,129,83,359,19908
+2026-02-21,08:30,Facebook,How to learn technical skills faster,Education,Educational,340,25,19,66,8677
+2026-04-03,21:00,Instagram,How AI is changing the way we work,AI,Entertainment,3826,202,347,519,37615
+2026-05-11,20:00,X,Social media tips for better engagement,Marketing,Informational,286,20,29,63,9840
+2026-08-06,12:30,X,Simple marketing strategies for beginners,Marketing,Informational,686,50,54,99,36667
+2026-06-01,21:00,Facebook,Learn Python functions with simple examples,Python,Educational,2757,316,384,691,44741
+2026-04-28,21:30,LinkedIn,5 technologies shaping the future,Technology,Promotional,1628,177,187,179,49417
+2026-02-19,08:30,Facebook,Social media tips for better engagement,Marketing,Entertainment,433,28,52,51,13612
+2026-03-09,14:30,Facebook,5 technologies shaping the future,Technology,Promotional,955,67,50,278,24342
+2026-03-14,18:00,Facebook,Beginner guide to artificial intelligence,AI,Educational,1145,92,130,260,22331
+2026-07-15,19:00,Instagram,Simple marketing strategies for beginners,Marketing,Promotional,2651,239,372,341,45602
+2026-02-02,09:00,Facebook,Ways to grow your online audience,Marketing,Entertainment,622,41,58,63,7971
+2026-03-11,21:00,Facebook,5 ways to improve your study routine,Education,Entertainment,2007,230,216,575,32189
+2026-05-24,19:00,LinkedIn,Python tricks that save coding time,Python,Entertainment,775,78,77,228,28768
+2026-07-03,09:30,Facebook,Learn Python functions with simple examples,Python,Promotional,403,39,42,34,11007
+2026-06-20,20:00,LinkedIn,How AI is changing the way we work,AI,Educational,1282,151,97,144,43429
+2026-01-02,10:00,LinkedIn,New product update is now available,Product,Informational,2352,121,186,596,48323
+2026-06-15,10:30,Facebook,Easy Python projects for students,Python,Educational,1199,54,107,191,39477
+2026-02-25,20:30,LinkedIn,Important skills every student should learn,Education,Educational,1651,70,247,439,35018
+2026-08-07,09:00,X,Social media tips for better engagement,Marketing,Entertainment,1128,51,79,247,26109
+2026-06-16,20:30,Facebook,Important skills every student should learn,Education,Entertainment,802,40,89,219,11499
+2026-04-21,17:30,LinkedIn,5 ways to improve your study routine,Education,Entertainment,1283,62,111,290,31131
+2026-07-11,09:00,Instagram,Beginner guide to artificial intelligence,AI,Educational,1311,139,169,265,33303
+2026-06-18,18:00,X,Social media tips for better engagement,Marketing,Informational,810,58,83,102,23850
+2026-09-04,09:30,Facebook,AI tools that save you 10 hours a week,AI,Informational,1323,104,134,329,42624
+2026-01-14,14:30,Instagram,5 technologies shaping the future,Technology,Promotional,974,54,54,218,27270
+2026-02-05,18:30,Instagram,AI tools that save you 10 hours a week,AI,Promotional,1226,89,146,307,34730
+2026-02-13,09:30,LinkedIn,Easy Python projects for students,Python,Educational,1631,136,144,228,34039
+2026-09-20,14:30,X,Python tricks that save coding time,Python,Educational,1649,72,137,349,39533
+2026-01-04,14:30,LinkedIn,5 useful AI tools for students,AI,Promotional,431,36,37,46,26503
+2026-04-28,18:00,Facebook,The future of technology explained,Technology,Educational,862,105,116,178,33588
+2026-07-27,18:00,Facebook,Ways to grow your online audience,Marketing,Educational,874,109,79,202,26284
+2026-07-05,18:30,Instagram,Learn Python functions with simple examples,Python,Promotional,956,113,116,123,39338
+2026-03-28,17:30,Instagram,Top Python mistakes beginners make,Python,Promotional,2612,160,146,322,47299
+2026-03-20,19:30,LinkedIn,Social media tips for better engagement,Marketing,Entertainment,3181,288,349,691,49638
+2026-06-11,19:30,Instagram,Beginner guide to artificial intelligence,AI,Entertainment,1807,129,87,328,23001
+2026-01-20,09:30,Facebook,Python tricks that save coding time,Python,Educational,1888,237,228,168,35324
+2026-04-07,08:30,X,Product update: new tools for users,Product,Promotional,351,40,51,34,11783
+2026-03-30,20:00,X,Easy Python projects for students,Python,Entertainment,982,64,83,151,28848
+2026-01-27,09:30,Instagram,Simple marketing strategies for beginners,Marketing,Informational,1012,118,147,215,23621
+2026-03-18,14:30,LinkedIn,Our new dashboard feature is live,Product,Informational,524,65,38,85,13450
+2026-06-18,20:30,Instagram,Latest AI trends you should know,AI,Entertainment,384,21,24,110,6194
+2026-09-06,09:30,LinkedIn,How AI is changing the way we work,AI,Promotional,307,27,37,60,11628
+2026-06-22,10:00,X,How technology is changing daily life,Technology,Promotional,1368,75,120,233,45942
+2026-05-02,12:00,Facebook,Important skills every student should learn,Education,Entertainment,2000,221,278,245,25281
+2026-08-14,10:00,X,Best learning habits for students,Education,Entertainment,1111,69,122,302,44627
+2026-02-22,09:00,Instagram,Content ideas that attract more viewers,Marketing,Informational,1237,106,162,123,22877
+2026-04-24,08:30,Instagram,Best learning habits for students,Education,Entertainment,2384,178,116,308,37899
+2026-06-13,08:30,LinkedIn,Python tricks that save coding time,Python,Promotional,1129,59,132,201,35962
+2026-01-03,10:30,Facebook,5 Python tips every beginner should know,Python,Promotional,493,30,26,65,12286
+2026-08-23,20:00,X,5 Python tips every beginner should know,Python,Educational,407,16,32,83,14409
+2026-04-06,20:00,Facebook,Social media tips for better engagement,Marketing,Educational,2079,91,171,337,30588
+2026-01-09,09:30,Facebook,Our new dashboard feature is live,Product,Promotional,235,20,30,27,13743
+2026-08-26,09:30,LinkedIn,Ways to grow your online audience,Marketing,Promotional,154,6,9,13,7423
+2026-06-08,08:00,X,Beginner guide to modern technology,Technology,Informational,628,69,84,96,23750
+2026-03-05,18:30,X,How our new feature improves productivity,Product,Entertainment,669,56,94,129,17243
+2026-02-12,21:00,Instagram,Ways to grow your online audience,Marketing,Entertainment,2328,114,177,337,40748
+2026-08-17,17:30,LinkedIn,Beginner guide to modern technology,Technology,Entertainment,429,52,46,75,7775
+2026-01-30,08:00,Facebook,Learn Python functions with simple examples,Python,Promotional,1663,132,89,219,44817
+2026-07-07,19:30,Instagram,How our new feature improves productivity,Product,Promotional,1164,54,64,187,29380
+2026-06-10,08:00,LinkedIn,Simple marketing strategies for beginners,Marketing,Educational,1582,193,83,396,37705
+2026-08-17,12:00,Facebook,Latest AI trends you should know,AI,Entertainment,1015,81,140,180,13895
+2026-02-14,20:30,Facebook,Simple marketing strategies for beginners,Marketing,Educational,1649,171,234,363,24657
+2026-07-05,10:00,Instagram,How technology is changing daily life,Technology,Promotional,826,74,66,212,37376
+2026-03-08,18:30,Instagram,Technology trends to watch this year,Technology,Informational,2048,157,211,220,39451
+2026-06-12,20:30,X,Social media tips for better engagement,Marketing,Entertainment,720,79,79,86,13410
+2026-03-08,20:00,Instagram,Important skills every student should learn,Education,Educational,1093,75,129,170,24931
+2026-09-23,20:30,Facebook,Our new dashboard feature is live,Product,Promotional,467,44,23,103,13203
+2026-03-20,08:00,Facebook,Latest AI trends you should know,AI,Educational,572,62,39,72,7979
+2026-08-02,14:30,X,Technology trends to watch this year,Technology,Informational,847,86,61,81,21048
+2026-01-31,19:00,X,Beginner guide to artificial intelligence,AI,Entertainment,1178,80,140,284,27294
+2026-06-26,17:00,Facebook,How to learn technical skills faster,Education,Educational,1096,88,60,99,35570
+2026-07-16,17:30,LinkedIn,Beginner guide to modern technology,Technology,Promotional,578,49,55,109,17440
+2026-06-07,20:30,Instagram,Simple study tips for better results,Education,Entertainment,1069,76,48,201,20776
+2026-08-29,18:00,Instagram,Product update: new tools for users,Product,Educational,1809,196,145,304,22332
+2026-04-10,18:30,Facebook,Product update: new tools for users,Product,Educational,1583,204,181,168,41035
+2026-02-19,10:00,Facebook,Best learning habits for students,Education,Informational,1918,163,86,211,44483
+2026-06-20,21:00,X,Important skills every student should learn,Education,Promotional,862,59,71,185,26493
+2026-06-03,19:00,X,5 technologies shaping the future,Technology,Informational,747,37,64,110,29140
+2026-01-14,08:30,Facebook,Beginner guide to modern technology,Technology,Promotional,521,54,65,85,16174
+2026-05-05,08:30,Instagram,Top Python mistakes beginners make,Python,Promotional,986,76,61,187,25558
+2026-08-30,20:30,LinkedIn,Social media tips for better engagement,Marketing,Promotional,1242,91,180,224,48399
+2026-06-25,12:00,Facebook,5 technologies shaping the future,Technology,Entertainment,1330,80,195,193,23284
+2026-05-28,19:30,X,How to create engaging social media posts,Marketing,Informational,1847,206,129,197,41732
+2026-07-14,08:30,LinkedIn,Best learning habits for students,Education,Informational,306,24,20,56,10179
+2026-04-14,09:00,Facebook,5 technologies shaping the future,Technology,Promotional,362,43,23,47,20889
+2026-02-21,10:00,X,Best learning habits for students,Education,Educational,2169,117,242,593,41067
+2026-09-01,14:00,Facebook,How to learn technical skills faster,Education,Informational,535,32,64,142,10862
+2026-01-20,18:30,LinkedIn,Beginner guide to artificial intelligence,AI,Educational,1019,128,144,278,17210
+2026-01-05,14:30,Instagram,Product update: new tools for users,Product,Informational,2796,236,400,747,47029
+2026-08-28,10:30,Instagram,New product update is now available,Product,Informational,2049,116,247,520,47486
+2026-04-09,20:30,X,Latest AI trends you should know,AI,Entertainment,375,18,55,69,10684
+2026-05-08,19:30,X,Python tricks that save coding time,Python,Promotional,485,50,20,108,26602
+2026-05-01,10:30,X,5 Python tips every beginner should know,Python,Informational,1546,186,181,229,49962
+2026-03-02,12:00,Facebook,Simple marketing strategies for beginners,Marketing,Promotional,747,80,79,128,36338
+2026-08-30,20:30,LinkedIn,How technology is changing daily life,Technology,Educational,1967,92,200,184,39614
+2026-09-16,17:30,LinkedIn,Latest AI trends you should know,AI,Promotional,390,40,36,108,12617
+2026-08-17,19:00,LinkedIn,Learn Python functions with simple examples,Python,Entertainment,1802,202,215,301,41621
+2026-01-02,18:30,Instagram,How to create engaging social media posts,Marketing,Educational,630,28,87,187,9178
+2026-08-30,10:30,X,Python tricks that save coding time,Python,Promotional,1003,74,136,280,29540
+2026-07-12,09:00,LinkedIn,Top Python mistakes beginners make,Python,Informational,1279,65,188,337,40209
+2026-01-12,12:00,X,How our new feature improves productivity,Product,Entertainment,1161,75,166,278,35187
+2026-02-27,12:00,Instagram,Learn Python functions with simple examples,Python,Promotional,533,42,60,144,11612
+2026-05-06,12:00,X,Social media tips for better engagement,Marketing,Entertainment,217,28,14,61,8699
+2026-06-13,14:00,Facebook,The future of technology explained,Technology,Promotional,1552,119,109,314,48267
+2026-03-31,17:30,X,Ways to grow your online audience,Marketing,Educational,1152,89,64,187,39371
+2026-08-31,19:00,Facebook,How AI is changing the way we work,AI,Promotional,1203,93,118,199,41856
+2026-05-11,17:00,Instagram,5 useful AI tools for students,AI,Entertainment,3535,202,245,806,40103
+2026-01-21,12:30,LinkedIn,Easy Python projects for students,Python,Entertainment,1630,67,233,475,24869
+2026-03-02,18:00,LinkedIn,Ways to grow your online audience,Marketing,Promotional,888,58,81,197,41181
+2026-06-07,09:30,X,See what is new in our latest release,Product,Entertainment,1433,105,122,291,25986
+2026-04-24,20:30,Instagram,How to create engaging social media posts,Marketing,Informational,905,63,74,238,24345
+2026-09-13,19:30,Facebook,5 technologies shaping the future,Technology,Entertainment,1066,76,59,213,16025
+2026-04-05,08:00,Instagram,Technology trends to watch this year,Technology,Educational,1347,130,63,152,32026
+2026-04-22,21:30,Facebook,Beginner guide to modern technology,Technology,Educational,2357,95,237,194,48206
+2026-05-21,10:00,Instagram,5 technologies shaping the future,Technology,Entertainment,834,51,90,113,11312
+2026-07-01,18:30,Instagram,How our new feature improves productivity,Product,Informational,1780,182,129,466,42027
+2026-02-11,18:30,Instagram,Social media tips for better engagement,Marketing,Entertainment,2896,281,339,284,41221
+2026-08-11,12:00,Instagram,Simple marketing strategies for beginners,Marketing,Educational,2713,119,130,769,42144
+2026-01-17,21:00,Instagram,5 useful AI tools for students,AI,Promotional,1866,124,190,381,31102
+2026-07-19,10:00,Facebook,Content ideas that attract more viewers,Marketing,Entertainment,2543,180,129,333,37819
+2026-02-08,08:30,X,Product update: new tools for users,Product,Informational,1056,76,151,184,34527
