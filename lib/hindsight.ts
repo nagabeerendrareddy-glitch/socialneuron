@@ -19,48 +19,56 @@ function errorMessage(payload: unknown, fallback: string) {
   return fallback
 }
 
-async function request(path: string, body: JsonRecord, apiKeyOverride?: string) {
-  const apiKey = apiKeyOverride || process.env.HINDSIGHT_API_KEY
-  if (!apiKey) throw new IntegrationError('Add a Hindsight API key in Settings or configure the deployment key.', 503)
+async function request(path: string, body: JsonRecord, apiKeyOverride?: string | string[]) {
+  const configuredKeys = Array.isArray(apiKeyOverride) ? apiKeyOverride : apiKeyOverride ? [apiKeyOverride] : []
+  const apiKeys = [...new Set([...configuredKeys, process.env.HINDSIGHT_API_KEY?.trim() ?? ''].map((key) => key.trim()).filter(Boolean))]
+  if (!apiKeys.length) throw new IntegrationError('Add a Hindsight API key in Settings or configure the deployment key.', 503)
 
-  let response: Response
-  try {
-    response = await fetch(`${HINDSIGHT_API_BASE}/v1/default/banks/${HINDSIGHT_BANK_ID}${path}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(15_000),
-    })
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'TimeoutError') {
-      throw new IntegrationError('Hindsight request timed out after 15 seconds.', 504)
+  let lastError: IntegrationError | undefined
+  for (const apiKey of apiKeys) {
+    let response: Response
+    try {
+      response = await fetch(`${HINDSIGHT_API_BASE}/v1/default/banks/${HINDSIGHT_BANK_ID}${path}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'TimeoutError') {
+        throw new IntegrationError('Hindsight request timed out after 15 seconds.', 504)
+      }
+      throw new IntegrationError('Could not reach Hindsight Cloud.', 502)
     }
-    throw new IntegrationError('Could not reach Hindsight Cloud.', 502)
-  }
 
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    if (response.ok) return payload
+
+    const message = errorMessage(payload, `Hindsight request failed (HTTP ${response.status}).`)
+    const retryable = [401, 402, 403, 429].includes(response.status) || /insufficient credits?|credit limit|quota|rate limit/i.test(message)
     const status = response.status === 401 || response.status === 403 ? 503 : response.status === 404 ? 422 : 502
     const fallback = response.status === 401 || response.status === 403
       ? 'Hindsight rejected the API key. Check the key in Settings.'
       : response.status === 404
         ? `Hindsight could not find bank "${HINDSIGHT_BANK_ID}". Check the bank ID and create the bank in Hindsight Cloud.`
         : `Hindsight request failed (HTTP ${response.status}).`
-    throw new IntegrationError(errorMessage(payload, fallback), status)
+    lastError = new IntegrationError(errorMessage(payload, fallback), status)
+    if (!retryable) throw lastError
   }
-  return payload
+
+  throw lastError ?? new IntegrationError('Hindsight request failed for all available API keys.', 502)
 }
 
-export function retainInHindsight(items: string[], apiKey?: string) {
+export function retainInHindsight(items: string[], apiKey?: string | string[]) {
   return request('/memories', { items: items.map((content) => ({ content })) }, apiKey)
 }
 
-export function recallFromHindsight(query: string, apiKey?: string) {
+export function recallFromHindsight(query: string, apiKey?: string | string[]) {
   return request('/memories/recall', { query, top_k: 10 }, apiKey)
 }
 
-export function reflectWithHindsight(query: string, apiKey?: string) {
+export function reflectWithHindsight(query: string, apiKey?: string | string[]) {
   return request('/reflect', { query, budget: 'mid' }, apiKey)
 }
 

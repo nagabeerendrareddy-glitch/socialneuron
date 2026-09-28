@@ -18,7 +18,7 @@ type ChatMode = 'normal' | 'prediction'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
 type DemoResults = { before: string; after: string; recalled: string[]; verified: boolean; memoryMarker: string }
 type Provider = 'groq' | 'hindsight'
-type ProviderKeys = Partial<Record<Provider, string>>
+type ProviderKeys = { groq?: string; hindsight?: string[] }
 type ProviderKeyRing = Record<Provider, string[]>
 type ProviderKeyCursor = Record<Provider, number>
 
@@ -44,7 +44,11 @@ function nextProviderKeys(providers: Provider[]): ProviderKeys {
     const keys = sessionProviderKeys[provider]
     if (!keys.length) continue
     const index = providerKeyCursor[provider] % keys.length
-    selected[provider] = keys[index]
+    if (provider === 'hindsight') {
+      selected.hindsight = [...keys.slice(index), ...keys.slice(0, index)]
+    } else {
+      selected.groq = keys[index]
+    }
     providerKeyCursor[provider] = (index + 1) % keys.length
   }
   return selected
@@ -719,8 +723,8 @@ function SettingsPage({ count, comments, memories, activeProviderKeys, activePro
       <div className="credential-actions"><button className="button-secondary" type="button" onClick={() => addKeySlot(values, setValues)} disabled={values.length >= 10}>Add another key</button><button className="button-primary" type="submit" disabled={!values.some((key) => key.trim())}>Save {providerName} rotation</button>{isActive && <button className="button-secondary" type="button" onClick={() => onResetProviderKey(provider)}>Use deployment key</button>}</div>
     </form>
   }
-  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Add multiple Groq and Hindsight keys. The app rotates to the next key for each provider request. Keys stay in this tab&apos;s memory only and are never saved to browser storage.</p><div className="credential-list">
+  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Add multiple Groq and Hindsight keys. Hindsight tries every saved key in round-robin order for each task, then uses the deployment key as a fallback. Keys stay in this tab&apos;s memory only and are never saved to browser storage.</p><div className="credential-list">
     {providerForm('groq', groqKeys, setGroqKeys)}
     {providerForm('hindsight', hindsightKeys, setHindsightKeys)}
-  </div><p className="credential-notice">Keys are sent to this app&apos;s server only when making provider requests. The rotation is session-only and resets when this tab reloads or closes. Failed requests do not automatically retry with another key.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
+  </div><p className="credential-notice">Keys are sent to this app&apos;s server only when making provider requests. Hindsight tries saved keys sequentially on credit, quota, or authentication errors, then falls back to the deployment key. Rotation is session-only and resets when this tab reloads or closes.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
 }

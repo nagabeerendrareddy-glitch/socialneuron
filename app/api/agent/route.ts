@@ -25,16 +25,25 @@ type AgentInput = {
   providerKeys?: unknown
 }
 
-type ProviderKeys = { groq?: string; hindsight?: string }
+type ProviderKeys = { groq?: string; hindsight?: string[] }
 
 function getProviderKeys(value: unknown): ProviderKeys {
   if (!isRecord(value)) return {}
   const groq = typeof value.groq === 'string' ? value.groq.trim() : ''
-  const hindsight = typeof value.hindsight === 'string' ? value.hindsight.trim() : ''
+  const rawHindsight = Array.isArray(value.hindsight)
+    ? value.hindsight
+    : typeof value.hindsight === 'string'
+      ? [value.hindsight]
+      : []
+  const hindsight = [...new Set(rawHindsight.filter((key): key is string => typeof key === 'string').map((key) => key.trim()).filter((key) => key.length > 0 && key.length <= 512))].slice(0, 10)
   return {
     ...(groq && groq.length <= 512 ? { groq } : {}),
-    ...(hindsight && hindsight.length <= 512 ? { hindsight } : {}),
+    ...(hindsight.length ? { hindsight } : {}),
   }
+}
+
+function getHindsightApiKeys(providerKeys: ProviderKeys) {
+  return [...new Set([...(providerKeys.hindsight ?? []), process.env.HINDSIGHT_API_KEY?.trim() ?? ''].filter(Boolean))]
 }
 
 class AgentRequestError extends Error {
@@ -142,7 +151,7 @@ export async function POST(request: Request) {
   const question = typeof input.question === 'string' ? input.question.trim().slice(0, 4_000) : ''
   const providerKeys = getProviderKeys(input.providerKeys)
   const groqApiKey = providerKeys.groq || process.env.GROQ_API_KEY
-  const hindsightApiKey = providerKeys.hindsight || process.env.HINDSIGHT_API_KEY
+  const hindsightApiKeys = getHindsightApiKeys(providerKeys)
   if (input.action !== 'retain' && input.action !== 'memory-list' && input.action !== 'train' && !question) {
     return NextResponse.json({ error: 'Add a question or content brief first.' }, { status: 400 })
   }
@@ -160,7 +169,7 @@ export async function POST(request: Request) {
 
       let memories: string[] = []
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const payload = await recallFromHindsight(`${question}\nRequired retained memory marker: ${memoryMarker}`, hindsightApiKey)
+        const payload = await recallFromHindsight(`${question}\nRequired retained memory marker: ${memoryMarker}`, hindsightApiKeys)
         memories = extractMemories(payload)
         if (memories.some((memory) => memory.includes(memoryMarker))) break
         if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)))
@@ -185,7 +194,7 @@ export async function POST(request: Request) {
       const trainingSummary = await trainEngagementModel()
       let hindsightWarning = ''
       try {
-        await retainInHindsight([summarizeTrainingForMemory(trainingSummary)], hindsightApiKey)
+        await retainInHindsight([summarizeTrainingForMemory(trainingSummary)], hindsightApiKeys)
       } catch (error) {
         hindsightWarning = error instanceof Error ? error.message.slice(0, 400) : 'Hindsight could not retain the training summary.'
       }
@@ -204,7 +213,7 @@ export async function POST(request: Request) {
     if (input.action === 'memory-list') {
       const payload = await recallFromHindsight(
         'Recall the saved audience preferences, interests, questions, engagement observations, high-performing topics and formats, and posting-time patterns learned for this social media workspace.',
-        hindsightApiKey,
+        hindsightApiKeys,
       )
       return NextResponse.json({ memories: extractMemories(payload) })
     }
@@ -212,7 +221,7 @@ export async function POST(request: Request) {
     if (input.action === 'retain') {
       const memory = typeof input.memory === 'string' ? input.memory.trim().slice(0, 12_000) : ''
       if (!memory) return NextResponse.json({ error: 'Add a learning observation to retain.' }, { status: 400 })
-      await retainInHindsight([memory], hindsightApiKey)
+      await retainInHindsight([memory], hindsightApiKeys)
       return NextResponse.json({ retained: true })
     }
 
@@ -224,7 +233,7 @@ export async function POST(request: Request) {
 
     if (!learningDemoBefore) {
       try {
-        memories = extractMemories(await recallFromHindsight(question, hindsightApiKey))
+        memories = extractMemories(await recallFromHindsight(question, hindsightApiKeys))
       } catch (error) {
         hindsightWarning = error instanceof Error ? error.message.slice(0, 400) : 'Hindsight Recall is unavailable.'
       }
@@ -232,7 +241,7 @@ export async function POST(request: Request) {
       reflected = !hindsightWarning && needsReflection(input.action, question)
       if (reflected) {
         try {
-          reflection = extractReflection(await reflectWithHindsight(question, hindsightApiKey)).slice(0, 8_000)
+          reflection = extractReflection(await reflectWithHindsight(question, hindsightApiKeys)).slice(0, 8_000)
         } catch (error) {
           reflected = false
           hindsightWarning = error instanceof Error ? error.message.slice(0, 400) : 'Hindsight Reflect is unavailable.'
