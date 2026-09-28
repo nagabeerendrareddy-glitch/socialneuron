@@ -182,16 +182,22 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'A valid audit memory marker is required to verify Hindsight Recall.' }, { status: 400 })
       }
 
-      let memories: string[] = []
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const payload = await listMemoriesFromHindsight(memoryMarker, hindsightApiKeys, 12_000)
+      const listedMemories = await listMemoriesFromHindsight(memoryMarker, hindsightApiKeys, 15_000)
+      let memories = extractMemories(listedMemories, 100)
+
+      if (!memories.length) {
+        const payload = await recallFromHindsight(
+          `${question}\nUse only audience facts retained from the exact source document ${memoryMarker}.`,
+          hindsightApiKeys,
+          'high',
+          12_000,
+          [memoryMarker],
+        )
         memories = extractMemories(payload, 100)
-        if (memories.length) break
-        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 800))
       }
 
       if (!memories.length) {
-        throw new AgentRequestError('Hindsight accepted this run’s records, but its exact document lookup returned no readable memory units yet. The follow-up was not generated.', 422)
+        throw new AgentRequestError('Hindsight accepted the source document, but has not returned any extracted facts for it yet. Try the proof again after Hindsight finishes processing the records.', 422)
       }
 
       const recommendation = await generateWithGroq(

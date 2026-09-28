@@ -123,9 +123,16 @@ async function request(
 }
 
 export function retainInHindsight(items: string[], apiKey?: string | string[], documentId?: string) {
-  return request('/memories', {
-    items: items.map((content) => ({ content, ...(documentId ? { document_id: documentId } : {}) })),
-  }, apiKey, 45_000)
+  const requestItems = documentId
+    ? [{
+        content: items.map((item, index) => `Observation ${index + 1}: ${item}`).join('\n\n'),
+        document_id: documentId,
+        context: 'User-imported social media posts and audience comments for a live memory proof.',
+        tags: [documentId],
+      }]
+    : items.map((content) => ({ content }))
+
+  return request('/memories', { items: requestItems, async: false }, apiKey, 45_000)
 }
 
 export function listMemoriesFromHindsight(documentId: string, apiKey?: string | string[], timeoutMs = 12_000) {
@@ -138,8 +145,14 @@ export function recallFromHindsight(
   apiKey?: string | string[],
   budget: 'low' | 'mid' | 'high' = 'mid',
   timeoutMs = 30_000,
+  tags?: string[],
 ) {
-  return request('/memories/recall', { query, max_tokens: 4096, budget }, apiKey, timeoutMs)
+  return request('/memories/recall', {
+    query,
+    max_tokens: 4096,
+    budget,
+    ...(tags?.length ? { tags, tags_match: 'any_strict' } : {}),
+  }, apiKey, timeoutMs)
 }
 
 export function reflectWithHindsight(query: string, apiKey?: string | string[]) {

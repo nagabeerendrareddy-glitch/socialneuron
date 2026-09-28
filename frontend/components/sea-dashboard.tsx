@@ -588,10 +588,10 @@ export default function SeaDashboard({ userName }: { userName: string }) {
       pendingActivityId = undefined
 
       pendingOperation = 'Hindsight RETAIN'
-      pendingActivityId = log(`Hindsight RETAIN · storing ${recordCount} user-supplied records with a unique audit marker`, 'pending')
+      pendingActivityId = log(`Hindsight RETAIN · storing ${recordCount} user-supplied records as one tagged source document`, 'pending')
       const retained = await requestAgent('retain', { memory: learning, memoryMarker }, taskKeys)
       if (retained.retainedCount !== learning.length) throw new Error('Hindsight did not confirm retention of every marked post and comment.')
-      updateActivity(pendingActivityId, `Hindsight RETAIN · stored ${retained.retainedCount} separately marked posts and comments`, 'success', { details: learning.slice(0, 3).join(' · ') })
+      updateActivity(pendingActivityId, `Hindsight RETAIN · stored ${retained.retainedCount} records in one tagged source document`, 'success', { details: learning.slice(0, 3).join(' · ') })
       pendingActivityId = undefined
 
       pendingOperation = 'Hindsight RECALL verification'
