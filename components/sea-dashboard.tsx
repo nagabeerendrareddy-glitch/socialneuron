@@ -690,8 +690,8 @@ function AgentChat({ messages, input, setInput, mode, onModeChange, isSending, i
 
 function SettingsPage({ count, comments, memories, activeProviderKeys, activeProviderKeyCounts, onSaveProviderKeys, onResetProviderKey, onClear }: { count: number; comments: number; memories: number; activeProviderKeys: Record<Provider, boolean>; activeProviderKeyCounts: Record<Provider, number>; onSaveProviderKeys: (provider: Provider, keys: string[]) => void; onResetProviderKey: (provider: Provider) => void; onClear: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false)
-  const [groqKeys, setGroqKeys] = useState(['', '', ''])
-  const [hindsightKeys, setHindsightKeys] = useState(['', '', ''])
+  const [groqKeys, setGroqKeys] = useState(['', '', '', '', ''])
+  const [hindsightKeys, setHindsightKeys] = useState(['', '', '', '', ''])
   function saveKeys(event: React.FormEvent<HTMLFormElement>, provider: Provider, values: string[], clear: (values: string[]) => void) {
     event.preventDefault()
     const keys = [...new Set(values.map((key) => key.trim()).filter(Boolean))]
