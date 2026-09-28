@@ -53,16 +53,67 @@ async function request(
       throw new IntegrationError('Could not reach Hindsight Cloud.', 502)
     }
 
-    const payload = await response.json().catch(() => null)
-    if (response.ok) return payload
+    let payload = await response.json().catch(() => null)
+    let message = errorMessage(payload, `Hindsight request failed (HTTP ${response.status}).`)
 
-    const message = errorMessage(payload, `Hindsight request failed (HTTP ${response.status}).`)
+    if (response.status === 404 && /bank[^\n]*not found|not found[^\n]*bank/i.test(message)) {
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) {
+        throw new IntegrationError('Hindsight bank was missing and could not be initialized before the request timed out.', 504)
+      }
+
+      let createResponse: Response
+      try {
+        createResponse = await fetch(`${HINDSIGHT_API_BASE}/v1/default/banks/${HINDSIGHT_BANK_ID}`, {
+          method: 'PUT',
+          headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'Social Media Agent' }),
+          cache: 'no-store',
+          signal: AbortSignal.timeout(remainingMs),
+        })
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'TimeoutError') {
+          throw new IntegrationError('Hindsight bank initialization timed out.', 504)
+        }
+        throw new IntegrationError('Could not initialize the Hindsight memory bank.', 502)
+      }
+
+      if (!createResponse.ok && createResponse.status !== 409) {
+        const createPayload = await createResponse.json().catch(() => null)
+        throw new IntegrationError(
+          errorMessage(createPayload, `Could not initialize Hindsight bank "${HINDSIGHT_BANK_ID}" (HTTP ${createResponse.status}).`),
+          createResponse.status === 401 || createResponse.status === 403 ? 503 : 502,
+        )
+      }
+
+      const retryMs = deadline - Date.now()
+      if (retryMs <= 0) throw new IntegrationError('Hindsight bank was initialized, but the request timed out before it could be retried.', 504)
+      try {
+        response = await fetch(`${HINDSIGHT_API_BASE}/v1/default/banks/${HINDSIGHT_BANK_ID}${path}`, {
+          method,
+          headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+          ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
+          cache: 'no-store',
+          signal: AbortSignal.timeout(retryMs),
+        })
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'TimeoutError') {
+          throw new IntegrationError(`Hindsight request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`, 504)
+        }
+        throw new IntegrationError('Could not reach Hindsight Cloud after initializing its memory bank.', 502)
+      }
+      payload = await response.json().catch(() => null)
+      if (response.ok) return payload
+      message = errorMessage(payload, `Hindsight request failed (HTTP ${response.status}).`)
+    }
+
+    if (response.ok) return payload
     const retryable = [401, 402, 403, 429].includes(response.status) || /insufficient credits?|credit limit|quota|rate limit/i.test(message)
     const status = response.status === 401 || response.status === 403 ? 503 : response.status === 404 ? 422 : 502
     const fallback = response.status === 401 || response.status === 403
       ? 'Hindsight rejected the API key. Check the key in Settings.'
       : response.status === 404
-        ? `Hindsight could not find bank "${HINDSIGHT_BANK_ID}". Check the bank ID and create the bank in Hindsight Cloud.`
+        ? `Hindsight could not find bank "${HINDSIGHT_BANK_ID}" or requested resource.`
         : `Hindsight request failed (HTTP ${response.status}).`
     lastError = new IntegrationError(errorMessage(payload, fallback), status)
     if (!retryable) throw lastError
