@@ -16,7 +16,7 @@ import {
 
 export const maxDuration = 60
 
-const REQUEST_TIMEOUT_MS = 25_000
+const REQUEST_TIMEOUT_MS = 20_000
 
 type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before' | 'learning-demo-after'
 type AgentInput = {
@@ -182,15 +182,16 @@ export async function POST(request: Request) {
       }
 
       let recalledMemories: string[] = []
-      for (let attempt = 0; attempt < 7; attempt += 1) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         const payload = await recallFromHindsight(
           `Retrieve the exact retained audience records containing this unique marker: ${memoryMarker}. Return the original record text verbatim.`,
           hindsightApiKeys,
           'high',
+          8_000,
         )
         recalledMemories = extractMemories(payload, 100)
         if (recalledMemories.some((memory) => memory.includes(memoryMarker))) break
-        if (attempt < 6) await new Promise((resolve) => setTimeout(resolve, Math.min(750 * 2 ** attempt, 5_000)))
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)))
       }
 
       const memories = recalledMemories.filter((memory) => memory.includes(memoryMarker))

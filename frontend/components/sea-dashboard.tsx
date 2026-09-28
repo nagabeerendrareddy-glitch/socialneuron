@@ -75,12 +75,24 @@ async function requestAgent(action: AgentAction, payload: Record<string, unknown
         ...(providers.includes('hindsight') && taskKeys.hindsight?.length ? { hindsight: taskKeys.hindsight } : {}),
       }
     : nextProviderKeys(providers)
-  const response = await fetch('/api/agent', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...payload, providerKeys }),
-  })
+  let response: Response
+  try {
+    response = await fetch('/api/agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload, providerKeys }),
+      signal: AbortSignal.timeout(55_000),
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new Error('The agent request took too long. Please try again.')
+    }
+    throw new Error('Could not reach the agent service. Check your connection and try again.')
+  }
   const result = await response.json().catch(() => ({})) as AgentResult
+  if (response.status >= 500 && !result.error) {
+    throw new Error('The agent service is temporarily unavailable. Please try again.')
+  }
   if (!response.ok) throw new Error(result.error || 'The agent request failed. Try again.')
   return result
 }

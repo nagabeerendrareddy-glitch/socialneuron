@@ -19,13 +19,18 @@ function errorMessage(payload: unknown, fallback: string) {
   return fallback
 }
 
-async function request(path: string, body: JsonRecord, apiKeyOverride?: string | string[]) {
+async function request(path: string, body: JsonRecord, apiKeyOverride?: string | string[], timeoutMs = 10_000) {
   const configuredKeys = Array.isArray(apiKeyOverride) ? apiKeyOverride : apiKeyOverride ? [apiKeyOverride] : []
   const apiKeys = [...new Set([...configuredKeys, process.env.HINDSIGHT_API_KEY?.trim() ?? ''].map((key) => key.trim()).filter(Boolean))]
   if (!apiKeys.length) throw new IntegrationError('Add a Hindsight API key in Settings or configure the deployment key.', 503)
 
   let lastError: IntegrationError | undefined
+  const deadline = Date.now() + timeoutMs
   for (const apiKey of apiKeys) {
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      throw new IntegrationError(`Hindsight request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`, 504)
+    }
     let response: Response
     try {
       response = await fetch(`${HINDSIGHT_API_BASE}/v1/default/banks/${HINDSIGHT_BANK_ID}${path}`, {
@@ -33,11 +38,11 @@ async function request(path: string, body: JsonRecord, apiKeyOverride?: string |
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify(body),
         cache: 'no-store',
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(remainingMs),
       })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'TimeoutError') {
-        throw new IntegrationError('Hindsight request timed out after 15 seconds.', 504)
+        throw new IntegrationError(`Hindsight request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`, 504)
       }
       throw new IntegrationError('Could not reach Hindsight Cloud.', 502)
     }
@@ -64,8 +69,13 @@ export function retainInHindsight(items: string[], apiKey?: string | string[]) {
   return request('/memories', { items: items.map((content) => ({ content })) }, apiKey)
 }
 
-export function recallFromHindsight(query: string, apiKey?: string | string[], budget: 'low' | 'mid' | 'high' = 'mid') {
-  return request('/memories/recall', { query, max_tokens: 4096, budget }, apiKey)
+export function recallFromHindsight(
+  query: string,
+  apiKey?: string | string[],
+  budget: 'low' | 'mid' | 'high' = 'mid',
+  timeoutMs = 10_000,
+) {
+  return request('/memories/recall', { query, max_tokens: 4096, budget }, apiKey, timeoutMs)
 }
 
 export function reflectWithHindsight(query: string, apiKey?: string | string[]) {
