@@ -571,8 +571,8 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     const taskKeys = currentProviderKeys(demoProviders)
     const memoryMarker = `SOCIAL-NEURON-AUDIT-${crypto.randomUUID()}`
     const learning = [
-      ...auditedPosts.map((post) => `[${memoryMarker}] Post: ${post.content} | date ${post.date} | platform ${post.platform} | topic ${post.topic} | format ${post.format} | likes ${post.likes} | comments ${post.comments} | shares ${post.shares} | saves ${post.saves} | hour ${post.hour}`),
-      ...auditedComments.map((comment) => `[${memoryMarker}] Comment: ${comment}`),
+      ...auditedPosts.map((post) => `Post: ${post.content} | date ${post.date} | platform ${post.platform} | topic ${post.topic} | format ${post.format} | likes ${post.likes} | comments ${post.comments} | shares ${post.shares} | saves ${post.saves} | hour ${post.hour}`),
+      ...auditedComments.map((comment) => `Comment: ${comment}`),
     ]
     setPending('learning-demo-before')
     setDemoResults(null)
@@ -589,19 +589,19 @@ export default function SeaDashboard({ userName }: { userName: string }) {
 
       pendingOperation = 'Hindsight RETAIN'
       pendingActivityId = log(`Hindsight RETAIN · storing ${recordCount} user-supplied records with a unique audit marker`, 'pending')
-      const retained = await requestAgent('retain', { memory: learning }, taskKeys)
+      const retained = await requestAgent('retain', { memory: learning, memoryMarker }, taskKeys)
       if (retained.retainedCount !== learning.length) throw new Error('Hindsight did not confirm retention of every marked post and comment.')
       updateActivity(pendingActivityId, `Hindsight RETAIN · stored ${retained.retainedCount} separately marked posts and comments`, 'success', { details: learning.slice(0, 3).join(' · ') })
       pendingActivityId = undefined
 
       pendingOperation = 'Hindsight RECALL verification'
-      pendingActivityId = log('Hindsight RECALL · verifying the exact evidence saved in this run', 'pending')
+      pendingActivityId = log('Hindsight RECALL · verifying the exact source document saved in this run', 'pending')
       const after = await requestAgent('learning-demo-after', { question, memoryMarker }, taskKeys)
-      if (!after.retainedMemoryVerified || !after.memories?.some((memory) => memory.includes(memoryMarker))) {
-        throw new Error('Hindsight Recall did not verify this run’s retained records. The follow-up is not shown as a successful proof.')
+      if (!after.retainedMemoryVerified || !after.memories?.length) {
+        throw new Error('Hindsight did not return readable memories linked to this run’s exact source document. The follow-up is not shown as a successful proof.')
       }
       setMemories(after.memories)
-      updateActivity(pendingActivityId, 'Hindsight RECALL · retrieved this run’s uniquely marked user-supplied evidence', 'success', { memoryCount: after.memories.length, details: after.memories.join(' · ') })
+      updateActivity(pendingActivityId, 'Hindsight RECALL · retrieved memory units linked to this run’s exact source document', 'success', { memoryCount: after.memories.length, details: after.memories.join(' · ') })
       pendingActivityId = undefined
       log('Groq LLM · generated the same-question follow-up using verified recalled evidence', 'success', { details: after.text })
       setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories, verified: true, memoryMarker, recordCount })

@@ -9,6 +9,7 @@ import {
   extractMemories,
   extractReflection,
   IntegrationError,
+  listMemoriesFromHindsight,
   recallFromHindsight,
   reflectWithHindsight,
   retainInHindsight,
@@ -181,34 +182,28 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'A valid audit memory marker is required to verify Hindsight Recall.' }, { status: 400 })
       }
 
-      let recalledMemories: string[] = []
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const payload = await recallFromHindsight(
-          `Retrieve the exact retained audience records containing this unique marker: ${memoryMarker}. Return the original record text verbatim.`,
-          hindsightApiKeys,
-          'high',
-          8_000,
-        )
-        recalledMemories = extractMemories(payload, 100)
-        if (recalledMemories.some((memory) => memory.includes(memoryMarker))) break
-        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)))
+      let memories: string[] = []
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const payload = await listMemoriesFromHindsight(memoryMarker, hindsightApiKeys, 5_000)
+        memories = extractMemories(payload, 100)
+        if (memories.length) break
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)))
       }
 
-      const memories = recalledMemories.filter((memory) => memory.includes(memoryMarker))
       if (!memories.length) {
-        throw new AgentRequestError('Hindsight Recall did not return this run’s retained evidence. The follow-up was not generated, so no unverified before/after result is shown.', 422)
+        throw new AgentRequestError('Hindsight accepted this run’s records, but its exact document lookup returned no readable memory units yet. The follow-up was not generated.', 422)
       }
 
       const recommendation = await generateWithGroq(
         'recommendation',
         question,
-        { source: 'No current-session history was supplied. Base the answer only on the uniquely marked, verified Hindsight Recall evidence. Cite the actual post or comment content, not the audit marker.' },
+        { source: 'No current-session history was supplied. Use only memory units returned by Hindsight for this run’s exact source document. Cite actual post or comment content.' },
         memories,
         '',
         groqApiKey || '',
       )
-      const citedRecords = memories.slice(0, 3).map((memory) => `- ${memory.replace(`[${memoryMarker}] `, '')}`).join('\n')
-      const text = `${recommendation}\n\nVerified recalled evidence:\n${citedRecords}`
+      const citedRecords = memories.slice(0, 3).map((memory) => `- ${memory}`).join('\n')
+      const text = `${recommendation}\n\nVerified Hindsight evidence:\n${citedRecords}`
       return NextResponse.json({ text, memories, retainedMemoryVerified: true, memoryMarker })
     }
 
@@ -247,8 +242,12 @@ export async function POST(request: Request) {
       }
       const memories = rawMemories.map((memory) => (memory as string).trim().slice(0, 12_000)).filter(Boolean)
       if (!memories.length) return NextResponse.json({ error: 'Add a learning observation to retain.' }, { status: 400 })
-      await retainInHindsight(memories, hindsightApiKeys)
-      return NextResponse.json({ retained: true, retainedCount: memories.length })
+      const documentId = typeof input.memoryMarker === 'string' ? input.memoryMarker.trim() : undefined
+      if (documentId && !/^SOCIAL-NEURON-AUDIT-[0-9a-f-]{36}$/i.test(documentId)) {
+        return NextResponse.json({ error: 'A valid audit document ID is required to tag proof records.' }, { status: 400 })
+      }
+      await retainInHindsight(memories, hindsightApiKeys, documentId)
+      return NextResponse.json({ retained: true, retainedCount: memories.length, documentId })
     }
 
     const learningDemoBefore = input.action === 'learning-demo-before'

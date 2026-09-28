@@ -19,7 +19,13 @@ function errorMessage(payload: unknown, fallback: string) {
   return fallback
 }
 
-async function request(path: string, body: JsonRecord, apiKeyOverride?: string | string[], timeoutMs = 10_000) {
+async function request(
+  path: string,
+  body: JsonRecord,
+  apiKeyOverride?: string | string[],
+  timeoutMs = 10_000,
+  method: 'GET' | 'POST' = 'POST',
+) {
   const configuredKeys = Array.isArray(apiKeyOverride) ? apiKeyOverride : apiKeyOverride ? [apiKeyOverride] : []
   const apiKeys = [...new Set([...configuredKeys, process.env.HINDSIGHT_API_KEY?.trim() ?? ''].map((key) => key.trim()).filter(Boolean))]
   if (!apiKeys.length) throw new IntegrationError('Add a Hindsight API key in Settings or configure the deployment key.', 503)
@@ -34,9 +40,9 @@ async function request(path: string, body: JsonRecord, apiKeyOverride?: string |
     let response: Response
     try {
       response = await fetch(`${HINDSIGHT_API_BASE}/v1/default/banks/${HINDSIGHT_BANK_ID}${path}`, {
-        method: 'POST',
+        method,
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
         cache: 'no-store',
         signal: AbortSignal.timeout(remainingMs),
       })
@@ -65,8 +71,15 @@ async function request(path: string, body: JsonRecord, apiKeyOverride?: string |
   throw lastError ?? new IntegrationError('Hindsight request failed for all available API keys.', 502)
 }
 
-export function retainInHindsight(items: string[], apiKey?: string | string[]) {
-  return request('/memories', { items: items.map((content) => ({ content })) }, apiKey)
+export function retainInHindsight(items: string[], apiKey?: string | string[], documentId?: string) {
+  return request('/memories', {
+    items: items.map((content) => ({ content, ...(documentId ? { document_id: documentId } : {}) })),
+  }, apiKey)
+}
+
+export function listMemoriesFromHindsight(documentId: string, apiKey?: string | string[], timeoutMs = 10_000) {
+  const query = new URLSearchParams({ document_id: documentId, limit: '100', offset: '0' })
+  return request(`/memories/list?${query.toString()}`, {}, apiKey, timeoutMs, 'GET')
 }
 
 export function recallFromHindsight(
