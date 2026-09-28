@@ -22,7 +22,7 @@ type AgentInput = {
   action: AgentAction
   question?: string
   context?: unknown
-  memory?: string
+  memory?: string | string[]
   memoryMarker?: string
   providerKeys?: unknown
 }
@@ -187,14 +187,16 @@ export async function POST(request: Request) {
         throw new AgentRequestError('Hindsight Recall did not return this run’s retained evidence. The follow-up was not generated, so no unverified before/after result is shown.', 422)
       }
 
-      const text = await generateWithGroq(
+      const recommendation = await generateWithGroq(
         'recommendation',
         question,
-        { source: 'No current-session history was supplied. Base the answer only on the uniquely marked, verified Hindsight Recall evidence.' },
+        { source: 'No current-session history was supplied. Base the answer only on the uniquely marked, verified Hindsight Recall evidence. Cite the actual post or comment content, not the audit marker.' },
         memories,
         '',
         groqApiKey || '',
       )
+      const citedRecords = memories.slice(0, 3).map((memory) => `- ${memory.replace(`[${memoryMarker}] `, '')}`).join('\n')
+      const text = `${recommendation}\n\nVerified recalled evidence:\n${citedRecords}`
       return NextResponse.json({ text, memories, retainedMemoryVerified: true, memoryMarker })
     }
 
@@ -227,10 +229,14 @@ export async function POST(request: Request) {
     }
 
     if (input.action === 'retain') {
-      const memory = typeof input.memory === 'string' ? input.memory.trim().slice(0, 12_000) : ''
-      if (!memory) return NextResponse.json({ error: 'Add a learning observation to retain.' }, { status: 400 })
-      await retainInHindsight([memory], hindsightApiKeys)
-      return NextResponse.json({ retained: true })
+      const rawMemories = Array.isArray(input.memory) ? input.memory : [input.memory]
+      if (!rawMemories.length || rawMemories.length > 40 || rawMemories.some((memory) => typeof memory !== 'string')) {
+        return NextResponse.json({ error: 'Provide between 1 and 40 learning observations to retain.' }, { status: 400 })
+      }
+      const memories = rawMemories.map((memory) => (memory as string).trim().slice(0, 12_000)).filter(Boolean)
+      if (!memories.length) return NextResponse.json({ error: 'Add a learning observation to retain.' }, { status: 400 })
+      await retainInHindsight(memories, hindsightApiKeys)
+      return NextResponse.json({ retained: true, retainedCount: memories.length })
     }
 
     const learningDemoBefore = input.action === 'learning-demo-before'

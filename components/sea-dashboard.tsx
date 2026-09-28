@@ -13,7 +13,7 @@ import {
 type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'recs' | 'social' | 'chat' | 'settings'
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
-type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; retainedMemoryVerified?: boolean; trained?: boolean; hindsightWarning?: string; error?: string }
+type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; retainedCount?: number; retainedMemoryVerified?: boolean; trained?: boolean; hindsightWarning?: string; error?: string }
 type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before' | 'learning-demo-after'
 type ChatMode = 'normal' | 'prediction'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
@@ -472,7 +472,10 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     const demoProviders: Provider[] = ['groq', 'hindsight']
     const taskKeys = currentProviderKeys(demoProviders)
     const memoryMarker = `SOCIAL-NEURON-AUDIT-${crypto.randomUUID()}`
-    const learning = `Verification token for this retained audience snapshot: ${memoryMarker}. Keep this exact token attached to the following user-supplied evidence. ${recordCount} records are included (${auditedPosts.length} posts, ${auditedComments.length} comments). This user-imported data has not been independently verified. Use only these records; do not infer beyond them. Imported posts: ${JSON.stringify(auditedPosts)}. User-supplied comments: ${JSON.stringify(auditedComments)}.`
+    const learning = [
+      ...auditedPosts.map((post) => `[${memoryMarker}] Post: ${post.content} | date ${post.date} | platform ${post.platform} | topic ${post.topic} | format ${post.format} | likes ${post.likes} | comments ${post.comments} | shares ${post.shares} | saves ${post.saves} | hour ${post.hour}`),
+      ...auditedComments.map((comment) => `[${memoryMarker}] Comment: ${comment}`),
+    ]
     setPending('learning-demo-before')
     setDemoResults(null)
     setDemoError('')
@@ -488,8 +491,9 @@ export default function SeaDashboard({ userName }: { userName: string }) {
 
       pendingOperation = 'Hindsight RETAIN'
       pendingActivityId = log(`Hindsight RETAIN · storing ${recordCount} user-supplied records with a unique audit marker`, 'pending')
-      await requestAgent('retain', { memory: learning }, taskKeys)
-      updateActivity(pendingActivityId, 'Hindsight RETAIN · stored this audit’s user-supplied evidence', 'success', { details: learning.slice(0, 900) })
+      const retained = await requestAgent('retain', { memory: learning }, taskKeys)
+      if (retained.retainedCount !== learning.length) throw new Error('Hindsight did not confirm retention of every marked post and comment.')
+      updateActivity(pendingActivityId, `Hindsight RETAIN · stored ${retained.retainedCount} separately marked posts and comments`, 'success', { details: learning.slice(0, 3).join(' · ') })
       pendingActivityId = undefined
 
       pendingOperation = 'Hindsight RECALL verification'
