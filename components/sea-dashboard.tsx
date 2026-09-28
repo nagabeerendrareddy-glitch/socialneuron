@@ -19,23 +19,45 @@ type ActivityEntry = { id: string; message: string; timestamp: string; operation
 type DemoResults = { before: string; after: string; recalled: string[]; verified: boolean; memoryMarker: string }
 type Provider = 'groq' | 'hindsight'
 type ProviderKeys = Partial<Record<Provider, string>>
+type ProviderKeyRing = Record<Provider, string[]>
+type ProviderKeyCursor = Record<Provider, number>
 
-let sessionProviderKeys: ProviderKeys = {}
+let sessionProviderKeys: ProviderKeyRing = { groq: [], hindsight: [] }
+let providerKeyCursor: ProviderKeyCursor = { groq: 0, hindsight: 0 }
 
-function setSessionProviderKey(provider: Provider, key: string) {
-  sessionProviderKeys = { ...sessionProviderKeys, [provider]: key }
+function setSessionProviderKeys(provider: Provider, keys: string[]) {
+  sessionProviderKeys = { ...sessionProviderKeys, [provider]: keys }
+  providerKeyCursor = { ...providerKeyCursor, [provider]: 0 }
 }
 
 function clearSessionProviderKey(provider: Provider) {
-  const { [provider]: _removed, ...remaining } = sessionProviderKeys
-  sessionProviderKeys = remaining
+  setSessionProviderKeys(provider, [])
+}
+
+function getSessionProviderKeyCount(provider: Provider) {
+  return sessionProviderKeys[provider].length
+}
+
+function nextProviderKeys(providers: Provider[]): ProviderKeys {
+  const selected: ProviderKeys = {}
+  for (const provider of providers) {
+    const keys = sessionProviderKeys[provider]
+    if (!keys.length) continue
+    const index = providerKeyCursor[provider] % keys.length
+    selected[provider] = keys[index]
+    providerKeyCursor[provider] = (index + 1) % keys.length
+  }
+  return selected
 }
 
 async function requestAgent(action: AgentAction, payload: Record<string, unknown> = {}): Promise<AgentResult> {
+  const providers: Provider[] = []
+  if (!['prediction-chat', 'train', 'retain', 'memory-list'].includes(action)) providers.push('groq')
+  if (!['prediction-chat', 'learning-demo-before'].includes(action)) providers.push('hindsight')
   const response = await fetch('/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...payload, providerKeys: sessionProviderKeys }),
+    body: JSON.stringify({ action, ...payload, providerKeys: nextProviderKeys(providers) }),
   })
   const result = await response.json().catch(() => ({})) as AgentResult
   if (!response.ok) throw new Error(result.error || 'The agent request failed. Try again.')
@@ -476,7 +498,7 @@ export default function SeaDashboard() {
           {page === 'recs' && <Recommendations recommendation={recommendation} isGenerating={pending === 'recommendation'} onGenerate={generateRecommendation} />}
           {page === 'social' && <SocialAccounts count={posts.length} connected={connected} setConnected={setConnected} onCsv={() => setCsvOpen(true)} onDemo={loadDemo} />}
           {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} mode={chatMode} onModeChange={setChatMode} isSending={pending === 'chat' || pending === 'prediction-chat'} isTraining={pending === 'train'} onSend={sendChat} onTrain={trainPredictor} />}
-          {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={learnedMemories.length} activeProviderKeys={activeProviderKeys} onSaveProviderKey={(provider, key) => { setSessionProviderKey(provider, key); setActiveProviderKeys((current) => ({ ...current, [provider]: true })); if (provider === 'hindsight') void refreshHindsightMemories(); notify(`${provider === 'groq' ? 'Groq' : 'Hindsight'} key updated for this browser session`) }} onResetProviderKey={(provider) => { clearSessionProviderKey(provider); setActiveProviderKeys((current) => ({ ...current, [provider]: false })); notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`) }} onClear={clearData} />}
+          {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={learnedMemories.length} activeProviderKeys={activeProviderKeys} activeProviderKeyCounts={{ groq: getSessionProviderKeyCount('groq'), hindsight: getSessionProviderKeyCount('hindsight') }} onSaveProviderKeys={(provider, keys) => { setSessionProviderKeys(provider, keys); setActiveProviderKeys((current) => ({ ...current, [provider]: keys.length > 0 })); if (provider === 'hindsight') void refreshHindsightMemories(); notify(`${keys.length} ${provider === 'groq' ? 'Groq' : 'Hindsight'} key${keys.length === 1 ? '' : 's'} added to this session rotation`) }} onResetProviderKey={(provider) => { clearSessionProviderKey(provider); setActiveProviderKeys((current) => ({ ...current, [provider]: false })); notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`) }} onClear={clearData} />}
         </main>
       </div>
 
@@ -666,19 +688,39 @@ function AgentChat({ messages, input, setInput, mode, onModeChange, isSending, i
   </section></>
 }
 
-function SettingsPage({ count, comments, memories, activeProviderKeys, onSaveProviderKey, onResetProviderKey, onClear }: { count: number; comments: number; memories: number; activeProviderKeys: Record<Provider, boolean>; onSaveProviderKey: (provider: Provider, key: string) => void; onResetProviderKey: (provider: Provider) => void; onClear: () => void }) {
+function SettingsPage({ count, comments, memories, activeProviderKeys, activeProviderKeyCounts, onSaveProviderKeys, onResetProviderKey, onClear }: { count: number; comments: number; memories: number; activeProviderKeys: Record<Provider, boolean>; activeProviderKeyCounts: Record<Provider, number>; onSaveProviderKeys: (provider: Provider, keys: string[]) => void; onResetProviderKey: (provider: Provider) => void; onClear: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false)
-  const [groqKey, setGroqKey] = useState('')
-  const [hindsightKey, setHindsightKey] = useState('')
-  function saveKey(event: React.FormEvent<HTMLFormElement>, provider: Provider, key: string, clear: () => void) {
+  const [groqKeys, setGroqKeys] = useState(['', '', ''])
+  const [hindsightKeys, setHindsightKeys] = useState(['', '', ''])
+  function saveKeys(event: React.FormEvent<HTMLFormElement>, provider: Provider, values: string[], clear: (values: string[]) => void) {
     event.preventDefault()
-    const trimmed = key.trim()
-    if (!trimmed) return
-    onSaveProviderKey(provider, trimmed)
-    clear()
+    const keys = [...new Set(values.map((key) => key.trim()).filter(Boolean))]
+    if (!keys.length) return
+    onSaveProviderKeys(provider, keys)
+    clear(['', '', ''])
   }
-  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Use your own Groq and Hindsight credentials for this browser session. Keys are never saved to browser storage or returned to the page after entry.</p><div className="credential-list">
-    <form className="credential-card" onSubmit={(event) => saveKey(event, 'groq', groqKey, () => setGroqKey(''))}><div className="credential-heading"><div><Eyebrow>LANGUAGE MODEL</Eyebrow><h3>Groq</h3></div><span className={`credential-status ${activeProviderKeys.groq ? 'is-custom' : ''}`}>{activeProviderKeys.groq ? 'Session key active' : 'Deployment key'}</span></div><label className="field-label" htmlFor="groq-api-key">Groq API key</label><input id="groq-api-key" className="form-control" type="password" autoComplete="new-password" spellCheck={false} maxLength={512} value={groqKey} onChange={(event) => setGroqKey(event.target.value)} placeholder="Paste a Groq API key" /><div className="credential-actions"><button className="button-primary" type="submit" disabled={!groqKey.trim()}>Save Groq key</button>{activeProviderKeys.groq && <button className="button-secondary" type="button" onClick={() => onResetProviderKey('groq')}>Use deployment key</button>}</div></form>
-    <form className="credential-card" onSubmit={(event) => saveKey(event, 'hindsight', hindsightKey, () => setHindsightKey(''))}><div className="credential-heading"><div><Eyebrow>LONG-TERM MEMORY</Eyebrow><h3>Hindsight</h3></div><span className={`credential-status ${activeProviderKeys.hindsight ? 'is-custom' : ''}`}>{activeProviderKeys.hindsight ? 'Session key active' : 'Deployment key'}</span></div><label className="field-label" htmlFor="hindsight-api-key">Hindsight API key</label><input id="hindsight-api-key" className="form-control" type="password" autoComplete="new-password" spellCheck={false} maxLength={512} value={hindsightKey} onChange={(event) => setHindsightKey(event.target.value)} placeholder="Paste a Hindsight API key" /><div className="credential-actions"><button className="button-primary" type="submit" disabled={!hindsightKey.trim()}>Save Hindsight key</button>{activeProviderKeys.hindsight && <button className="button-secondary" type="button" onClick={() => onResetProviderKey('hindsight')}>Use deployment key</button>}</div></form>
-  </div><p className="credential-notice">Keys stay in memory until you reload or close this tab. They are sent to this app’s server only when making provider requests; use deployment settings for persistent keys.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
+  function updateKey(values: string[], setValues: (values: string[]) => void, index: number, value: string) {
+    setValues(values.map((key, keyIndex) => keyIndex === index ? value : key))
+  }
+  function addKeySlot(values: string[], setValues: (values: string[]) => void) {
+    if (values.length < 10) setValues([...values, ''])
+  }
+  function removeKeySlot(values: string[], setValues: (values: string[]) => void, index: number) {
+    setValues(values.length > 1 ? values.filter((_, keyIndex) => keyIndex !== index) : [''])
+  }
+  const providerForm = (provider: Provider, values: string[], setValues: (values: string[]) => void) => {
+    const isGroq = provider === 'groq'
+    const providerName = isGroq ? 'Groq' : 'Hindsight'
+    const inputPrefix = isGroq ? 'groq' : 'hindsight'
+    const isActive = activeProviderKeys[provider]
+    return <form className="credential-card" onSubmit={(event) => saveKeys(event, provider, values, setValues)} key={provider}>
+      <div className="credential-heading"><div><Eyebrow>{isGroq ? 'LANGUAGE MODEL' : 'LONG-TERM MEMORY'}</Eyebrow><h3>{providerName}</h3></div><span className={`credential-status ${isActive ? 'is-custom' : ''}`}>{isActive ? `Rotating ${activeProviderKeyCounts[provider]} session keys` : 'Deployment key'}</span></div>
+      <div className="credential-key-list">{values.map((value, index) => <div className="credential-key-row" key={`${provider}-${index}`}><label className="field-label" htmlFor={`${inputPrefix}-api-key-${index}`}>{providerName} API key {index + 1}</label><div className="credential-key-input"><input id={`${inputPrefix}-api-key-${index}`} className="form-control" type="password" autoComplete="new-password" spellCheck={false} maxLength={512} value={value} onChange={(event) => updateKey(values, setValues, index, event.target.value)} placeholder={`Paste ${providerName} API key ${index + 1}`} />{values.length > 1 && <button className="key-slot-remove" type="button" aria-label={`Remove ${providerName} API key ${index + 1}`} onClick={() => removeKeySlot(values, setValues, index)}><X /></button>}</div></div>)}</div>
+      <div className="credential-actions"><button className="button-secondary" type="button" onClick={() => addKeySlot(values, setValues)} disabled={values.length >= 10}>Add another key</button><button className="button-primary" type="submit" disabled={!values.some((key) => key.trim())}>Save {providerName} rotation</button>{isActive && <button className="button-secondary" type="button" onClick={() => onResetProviderKey(provider)}>Use deployment key</button>}</div>
+    </form>
+  }
+  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Add multiple Groq and Hindsight keys. The app rotates to the next key for each provider request. Keys stay in this tab&apos;s memory only and are never saved to browser storage.</p><div className="credential-list">
+    {providerForm('groq', groqKeys, setGroqKeys)}
+    {providerForm('hindsight', hindsightKeys, setHindsightKeys)}
+  </div><p className="credential-notice">Keys are sent to this app&apos;s server only when making provider requests. The rotation is session-only and resets when this tab reloads or closes. Failed requests do not automatically retry with another key.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
 }
