@@ -12,11 +12,11 @@ import {
 type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'recs' | 'social' | 'chat' | 'settings'
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
-type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; trained?: boolean; hindsightWarning?: string; error?: string }
-type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
+type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; retainedMemoryVerified?: boolean; trained?: boolean; hindsightWarning?: string; error?: string }
+type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before' | 'learning-demo-after'
 type ChatMode = 'normal' | 'prediction'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
-type DemoResults = { before: string; after: string; recalled: string[]; reflected: boolean }
+type DemoResults = { before: string; after: string; recalled: string[]; verified: boolean; memoryMarker: string }
 type Provider = 'groq' | 'hindsight'
 type ProviderKeys = Partial<Record<Provider, string>>
 
@@ -401,42 +401,39 @@ export default function SeaDashboard() {
   }
   async function runLearningDemo() {
     if (pending) return
-    const question = 'What should I post next for my audience, and why?'
+    const question = 'What should I post next for the SEA Hindsight demo cohort, and why?'
     const demoPosts = makeSamplePosts()
+    const memoryMarker = `SEA-DEMO-${crypto.randomUUID()}`
     setPending('learning-demo-before')
     setDemoResults(null)
     setMemories([])
     let pendingActivityId: string | undefined
     let pendingOperation = 'Groq LLM'
-    let retainWarning = ''
     try {
-      pendingActivityId = log('Groq LLM · generating baseline with no Hindsight history', 'pending')
-      const before = await requestAgent('learning-demo-before', { question, context: { source: 'learning-demo baseline; no historical posts or comments provided' } })
-      updateActivity(pendingActivityId, 'Groq LLM · generated baseline with no Hindsight Recall', 'success', { details: before.text })
+      pendingActivityId = log('Groq LLM · generating baseline with no Hindsight Recall or sample history', 'pending')
+      const before = await requestAgent('learning-demo-before', { question, context: { source: 'No current-session post history or comments supplied.' } })
+      updateActivity(pendingActivityId, 'Groq LLM · generated baseline with no Hindsight Recall or sample history', 'success', { details: before.text })
       pendingActivityId = undefined
-      const learning = `Illustrative Memory Learning Demo dataset (sample data, not real account analytics). Historical posts: ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic/format/time engagement and audience interests/questions from the supplied records. Do not claim these are real account results.`
+
+      const learning = `Memory proof marker: ${memoryMarker}. SEA Hindsight demo cohort: sample audience of early-career developers interested in practical automation. Illustrative sample posts (not real account analytics): ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Illustrative audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic, format, posting-time performance, and audience interests from these records. Do not claim these are real account results.`
       pendingOperation = 'Hindsight RETAIN'
-      pendingActivityId = log('Hindsight RETAIN · storing sample engagement history', 'pending')
-      try {
-        await requestAgent('retain', { memory: learning })
-        await refreshHindsightMemories()
-        updateActivity(pendingActivityId, 'Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
-      } catch (error) {
-        retainWarning = error instanceof Error ? error.message : 'Hindsight could not retain the sample history.'
-        updateActivity(pendingActivityId, `Hindsight RETAIN unavailable · ${retainWarning}`, 'error', { details: learning.slice(0, 500) })
+      pendingActivityId = log('Hindsight RETAIN · storing sample history and unique proof marker', 'pending')
+      await requestAgent('retain', { memory: learning })
+      updateActivity(pendingActivityId, 'Hindsight RETAIN · Hindsight accepted the sample history and proof marker', 'success', { details: learning.slice(0, 900) })
+      pendingActivityId = undefined
+
+      pendingOperation = 'Hindsight RECALL verification'
+      pendingActivityId = log('Hindsight RECALL · verifying the exact memory saved in this run', 'pending')
+      const after = await requestAgent('learning-demo-after', { question, memoryMarker })
+      if (!after.retainedMemoryVerified || !after.memories?.some((memory) => memory.includes(memoryMarker))) {
+        throw new Error('Hindsight Recall did not verify this run’s retained memory. The follow-up is not shown as a successful demo.')
       }
+      setMemories(after.memories)
+      updateActivity(pendingActivityId, 'Hindsight RECALL · retrieved this run’s uniquely marked memory', 'success', { memoryCount: after.memories.length, details: after.memories.join(' · ') })
       pendingActivityId = undefined
-      pendingOperation = 'Groq LLM'
-      pendingActivityId = log('Groq LLM · generating follow-up recommendation', 'pending')
-      const after = await requestAgent('recommendation', { question, context: { ...currentContext(), posts: demoPosts, comments: sampleComments, source: 'learning-demo follow-up; use supplied sample posts and comments; use Hindsight memories if available' } })
-      setMemories(after.memories ?? [])
-      if (after.hindsightWarning) log(`Hindsight unavailable · ${after.hindsightWarning}`, 'error')
-      else log(`Hindsight RECALL · ${after.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: after.memories?.length ?? 0, details: after.memories?.slice(0, 3).join(' · ') || 'No relevant memories were returned.' })
-      pendingActivityId = undefined
-      if (after.reflected) log('Hindsight REFLECT · reasoned over retained sample history', 'success', { details: after.reflection || 'Hindsight reflection completed.' })
-      log('Groq LLM · generated the follow-up recommendation from available evidence', 'success', { details: after.text })
-      setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories ?? [], reflected: Boolean(after.reflected) })
-      notify(retainWarning || after.hindsightWarning ? 'Demo complete using sample data; Hindsight credits are unavailable' : 'Memory Learning Demo complete · Hindsight memories retrieved')
+      log('Groq LLM · generated the same-question follow-up using recalled memory only', 'success', { details: after.text })
+      setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories, verified: true, memoryMarker })
+      notify('Verified memory demo complete · Hindsight Recall changed the evidence available to the agent')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The memory-learning demo could not finish.'
       if (pendingActivityId) updateActivity(pendingActivityId, `${pendingOperation} failed · ${message}`, 'error')
@@ -525,8 +522,8 @@ function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResult
   <Stat label="TOTAL ENGAGEMENT" value={totalEngagement.toLocaleString()} hint="Likes, comments, shares & saves" icon={ArrowUpRight} />
   <Stat label="AUDIENCE SENTIMENT" value={`${positiveRate}%`} hint={`${comments.length} comments analyzed`} icon={MessageSquareText} />
   </div>
-  <Panel className="learning-demo-panel"><div className="panel-heading"><div><Eyebrow>REAL HINDSIGHT FLOW</Eyebrow><h2>Memory Learning Demo</h2><p className="muted">Ask the same question before learning, store sample history, then ask again using real Hindsight Recall and Reflect.</p></div><button className="button-primary" onClick={onRunLearningDemo} disabled={demoRunning}>{demoRunning ? 'Running memory flow…' : 'Run learning demo'}</button></div>
-  <div className="learning-demo-grid"><section><Eyebrow>BEFORE LEARNING · GROQ ONLY</Eyebrow><p>{demoResults?.before ?? 'The baseline uses the same recommendation question without Hindsight memories or sample post data.'}</p></section><section><Eyebrow>AFTER LEARNING · HINDSIGHT + GROQ</Eyebrow><p>{demoResults?.after ?? 'After you run the demo, real retained sample history is recalled and reflected on before this recommendation is generated.'}</p>{demoResults && <small>{demoResults.recalled.length} memories recalled · {demoResults.reflected ? 'reflection completed' : 'no reflection returned'}</small>}</section></div></Panel>
+  <Panel className="learning-demo-panel"><div className="panel-heading"><div><Eyebrow>VERIFIED HINDSIGHT FLOW</Eyebrow><h2>Memory Learning Demo</h2><p className="muted">Ask one question without history, retain sample observations, then ask the identical question with no sample data in the prompt. The follow-up is shown only after Recall returns this run&apos;s unique marker.</p></div><button className="button-primary" onClick={onRunLearningDemo} disabled={demoRunning}>{demoRunning ? 'Verifying memory flow…' : 'Run verified demo'}</button></div>
+  <div className="learning-demo-grid"><section><Eyebrow>BEFORE · NO RECALL OR HISTORY</Eyebrow><p>{demoResults?.before ?? 'The baseline receives the question only. No sample posts, comments, or Hindsight memories are provided.'}</p></section><section><Eyebrow>AFTER · VERIFIED HINDSIGHT RECALL</Eyebrow>{demoResults?.verified ? <><p>{demoResults.after}</p><small className="demo-proof-status">Recall verified · {demoResults.recalled.length} matching memory result(s) · marker {demoResults.memoryMarker}</small><div className="demo-memory-evidence"><strong>Memory actually recalled</strong><p>{demoResults.recalled.join(' · ').slice(0, 700)}{demoResults.recalled.join(' · ').length > 700 ? '…' : ''}</p></div></> : <p>The follow-up will not be generated or shown unless Hindsight returns this run&apos;s uniquely marked memory.</p>}</section></div></Panel>
   <div className="dashboard-grid">
 
       <Panel className="performance-panel"><div className="panel-heading"><div><Eyebrow>PERFORMANCE</Eyebrow><h2>Engagement by topic</h2></div><button className="text-action" onClick={() => onNavigate('knowledge')}>View insights <ArrowUpRight /></button></div>

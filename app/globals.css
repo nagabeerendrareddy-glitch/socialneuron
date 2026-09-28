@@ -325,7 +325,11 @@ textarea.form-control { min-height: 165px; resize: vertical; line-height: 1.5; }
 .learning-demo-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 16px; }
 .learning-demo-grid > section { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: rgba(16,23,34,.68); }
 .learning-demo-grid > section > p { margin: 8px 0 0; color: #dbe4f0; font-size: 11px; line-height: 1.6; white-space: pre-wrap; }
-.learning-demo-grid > section > small { display: block; margin-top: 10px; color: var(--cyan); font-family: 'DM Mono', monospace; font-size: 9px; }
+ .learning-demo-grid > section > small { display: block; margin-top: 10px; color: var(--cyan); font-family: 'DM Mono', monospace; font-size: 9px; overflow-wrap: anywhere; }
+ .demo-memory-evidence { margin-top: 12px; padding: 10px; border: 1px solid rgba(0,229,216,.2); border-radius: 7px; background: rgba(0,229,216,.045); }
+ .demo-memory-evidence strong { color: var(--cyan); font-size: 10px; }
+ .demo-memory-evidence p { max-height: 120px; overflow: auto; margin: 6px 0 0; color: #aebdd0; font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+
 @media (max-width: 760px) { .learning-demo-panel .panel-heading { flex-direction: column; } .learning-demo-grid { grid-template-columns: 1fr; } }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(2,5,9,.75); backdrop-filter: blur(4px); }
 .csv-modal { width: min(100%, 520px); max-height: min(90vh, 770px); overflow: auto; padding: 22px; border: 1px solid var(--border); border-radius: 13px; background: #121923; box-shadow: 0 20px 80px rgba(0,0,0,.42); }

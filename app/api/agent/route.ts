@@ -15,12 +15,13 @@ export const maxDuration = 60
 
 const REQUEST_TIMEOUT_MS = 25_000
 
-type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
+type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before' | 'learning-demo-after'
 type AgentInput = {
   action: AgentAction
   question?: string
   context?: unknown
   memory?: string
+  memoryMarker?: string
   providerKeys?: unknown
 }
 
@@ -129,7 +130,7 @@ export async function POST(request: Request) {
   let input: AgentInput
   try {
     const value: unknown = await request.json()
-    const actions: AgentAction[] = ['chat', 'prediction-chat', 'train', 'content', 'recommendation', 'analysis', 'comment-analysis', 'retain', 'memory-list', 'learning-demo-before']
+    const actions: AgentAction[] = ['chat', 'prediction-chat', 'train', 'content', 'recommendation', 'analysis', 'comment-analysis', 'retain', 'memory-list', 'learning-demo-before', 'learning-demo-after']
     if (!isRecord(value) || !actions.includes(value.action as AgentAction)) {
       return NextResponse.json({ error: 'Choose a supported agent action.' }, { status: 400 })
     }
@@ -151,6 +152,35 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (input.action === 'learning-demo-after') {
+      const memoryMarker = typeof input.memoryMarker === 'string' ? input.memoryMarker.trim() : ''
+      if (!/^SEA-DEMO-[0-9a-f-]{36}$/i.test(memoryMarker)) {
+        return NextResponse.json({ error: 'A valid demo memory marker is required to verify Hindsight Recall.' }, { status: 400 })
+      }
+
+      let memories: string[] = []
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const payload = await recallFromHindsight(`${question}\nRequired retained memory marker: ${memoryMarker}`, hindsightApiKey)
+        memories = extractMemories(payload)
+        if (memories.some((memory) => memory.includes(memoryMarker))) break
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)))
+      }
+
+      if (!memories.some((memory) => memory.includes(memoryMarker))) {
+        throw new AgentRequestError('Hindsight Recall did not return the memory retained for this demo. The follow-up was not generated, so no unverified before/after result is shown.', 422)
+      }
+
+      const text = await generateWithGroq(
+        'recommendation',
+        question,
+        { source: 'No current-session post history or comments were supplied. Base the answer on verified Hindsight Recall evidence only.' },
+        memories,
+        '',
+        groqApiKey || '',
+      )
+      return NextResponse.json({ text, memories, retainedMemoryVerified: true, memoryMarker })
+    }
+
     if (input.action === 'train') {
       const trainingSummary = await trainEngagementModel()
       let hindsightWarning = ''
