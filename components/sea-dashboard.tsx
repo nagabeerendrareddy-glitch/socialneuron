@@ -723,7 +723,7 @@ function AudienceKnowledge({ posts, topics, comments, memories, isLoadingMemorie
   const heat = days.map((_, day) => windows.map((window) => posts.filter((post) => post.day === day && (window.end > 24 ? post.hour >= window.start || post.hour < window.end - 24 : post.hour >= window.start && post.hour < window.end)).length))
   const maxHeat = Math.max(1, ...heat.flat())
   const memoryStatus = isLoadingMemories && !memories.length ? 'SYNCING' : memoryError && !memories.length ? 'AVAILABLE' : memories.length ? 'PERSISTED' : '—'
-  const memoryHint = isLoadingMemories && !memories.length ? 'Loading saved learnings from Hindsight' : memoryError && !memories.length ? 'Could not load Hindsight memories' : memories.length ? 'Saved in the Hindsight memory bank' : 'No learned facts in Hindsight yet'
+  const memoryHint = isLoadingMemories && !memories.length ? 'Loading saved learnings from Hindsight' : memoryError && !memories.length ? 'The Hindsight memories loaded' : memories.length ? 'Saved in the Hindsight memory bank' : 'No learned facts in Hindsight yet'
 
   return (
     <>
