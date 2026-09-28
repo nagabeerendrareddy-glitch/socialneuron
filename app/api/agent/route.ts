@@ -14,7 +14,7 @@ export const maxDuration = 60
 
 const REQUEST_TIMEOUT_MS = 25_000
 
-type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'learning-demo-before'
+type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
 type AgentInput = {
   action: AgentAction
   question?: string
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
   let input: AgentInput
   try {
     const value: unknown = await request.json()
-    const actions: AgentAction[] = ['chat', 'content', 'recommendation', 'analysis', 'comment-analysis', 'retain', 'learning-demo-before']
+    const actions: AgentAction[] = ['chat', 'content', 'recommendation', 'analysis', 'comment-analysis', 'retain', 'memory-list', 'learning-demo-before']
     if (!isRecord(value) || !actions.includes(value.action as AgentAction)) {
       return NextResponse.json({ error: 'Choose a supported agent action.' }, { status: 400 })
     }
@@ -140,15 +140,23 @@ export async function POST(request: Request) {
   const providerKeys = getProviderKeys(input.providerKeys)
   const groqApiKey = providerKeys.groq || process.env.GROQ_API_KEY
   const hindsightApiKey = providerKeys.hindsight || process.env.HINDSIGHT_API_KEY
-  if (input.action !== 'retain' && !question) {
+  if (input.action !== 'retain' && input.action !== 'memory-list' && !question) {
     return NextResponse.json({ error: 'Add a question or content brief first.' }, { status: 400 })
   }
 
-  if (input.action !== 'retain' && !groqApiKey) {
+  if (input.action !== 'retain' && input.action !== 'memory-list' && !groqApiKey) {
     return NextResponse.json({ error: 'Add a Groq API key in Settings or configure the deployment key.' }, { status: 503 })
   }
 
   try {
+    if (input.action === 'memory-list') {
+      const payload = await recallFromHindsight(
+        'Recall the saved audience preferences, interests, questions, engagement observations, high-performing topics and formats, and posting-time patterns learned for this social media workspace.',
+        hindsightApiKey,
+      )
+      return NextResponse.json({ memories: extractMemories(payload) })
+    }
+
     if (input.action === 'retain') {
       const memory = typeof input.memory === 'string' ? input.memory.trim().slice(0, 12_000) : ''
       if (!memory) return NextResponse.json({ error: 'Add a learning observation to retain.' }, { status: 400 })

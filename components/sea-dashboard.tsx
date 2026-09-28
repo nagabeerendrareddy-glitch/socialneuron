@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import useSWR from 'swr'
 import {
   ArrowDownToLine, ArrowRight, ArrowUpRight, Bot, Brain, BriefcaseBusiness,
   Check, ChevronDown, ChevronUp, CircleHelp, FileSearch, FlaskConical, Gauge,
@@ -12,7 +13,7 @@ type PageId = 'dashboard' | 'post' | 'comments' | 'content' | 'knowledge' | 'rec
 type Post = { id: string; date: string; platform: string; content: string; topic: string; type: string; likes: number; comments: number; shares: number; saves: number; hour: number; day: number }
 type Message = { role: 'user' | 'agent'; text: string }
 type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; reflection?: string; retained?: boolean; hindsightWarning?: string; error?: string }
-type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'learning-demo-before'
+type AgentAction = 'chat' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
 type DemoResults = { before: string; after: string; recalled: string[]; reflected: boolean }
 type Provider = 'groq' | 'hindsight'
@@ -131,6 +132,17 @@ export default function SeaDashboard() {
   const [recommendation, setRecommendation] = useState('')
   const [activeProviderKeys, setActiveProviderKeys] = useState<Record<Provider, boolean>>({ groq: false, hindsight: false })
   const fileRef = useRef<HTMLInputElement>(null)
+  const {
+    data: hindsightMemoryData,
+    error: hindsightMemoryError,
+    isLoading: isLoadingHindsightMemories,
+    mutate: refreshHindsightMemories,
+  } = useSWR<AgentResult, Error>('hindsight-memory-bank', () => requestAgent('memory-list'), {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  })
+  const storedMemories = hindsightMemoryData?.memories ?? []
+  const learnedMemories = useMemo(() => [...new Set([...storedMemories, ...memories])], [storedMemories, memories])
 
   const topics = useMemo(() => {
     const result = new Map<string, { count: number; total: number; likes: number }>()
@@ -193,6 +205,7 @@ export default function SeaDashboard() {
     const activityId = log('Hindsight RETAIN · sending audience learning', 'pending')
     try {
       await requestAgent('retain', { memory })
+      await refreshHindsightMemories()
       updateActivity(activityId, `Hindsight RETAIN · ${description} stored in the social-media-agent bank`, 'success', { details: memory.slice(0, 900) })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Hindsight could not store this learning.'
@@ -384,6 +397,7 @@ export default function SeaDashboard() {
       pendingActivityId = log('Hindsight RETAIN · storing sample engagement history', 'pending')
       try {
         await requestAgent('retain', { memory: learning })
+        await refreshHindsightMemories()
         updateActivity(pendingActivityId, 'Hindsight RETAIN · sample posts and audience comments stored', 'success', { details: learning.slice(0, 900) })
       } catch (error) {
         retainWarning = error instanceof Error ? error.message : 'Hindsight could not retain the sample history.'
@@ -439,11 +453,11 @@ export default function SeaDashboard() {
           {page === 'post' && <PostAnalyzer analysis={analysis} analysisLoading={pending === 'analysis'} onAnalyze={analyzePost} />}
           {page === 'comments' && <CommentAnalyzer comments={comments} analysis={commentAnalysis} insight={commentInsight} isAnalyzing={pending === 'comment-analysis'} memories={memories} onAnalyze={analyzeComments} />}
           {page === 'content' && <ContentGenerator draft={draft} saved={savedDrafts} showSaved={showSaved} isGenerating={pending === 'content'} memories={memories} onToggleSaved={() => setShowSaved(!showSaved)} onGenerate={generateContent} onSave={saveDraft} onCopy={() => { void navigator.clipboard?.writeText(draft); notify('Draft copied to clipboard') }} />}
-          {page === 'knowledge' && <AudienceKnowledge posts={posts} topics={topics} comments={comments} memories={memories} />}
+          {page === 'knowledge' && <AudienceKnowledge posts={posts} topics={topics} comments={comments} memories={learnedMemories} isLoadingMemories={isLoadingHindsightMemories} memoryError={hindsightMemoryError?.message} />}
           {page === 'recs' && <Recommendations recommendation={recommendation} isGenerating={pending === 'recommendation'} onGenerate={generateRecommendation} />}
           {page === 'social' && <SocialAccounts count={posts.length} connected={connected} setConnected={setConnected} onCsv={() => setCsvOpen(true)} onDemo={loadDemo} />}
           {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} isSending={pending === 'chat'} onSend={sendChat} />}
-          {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={memories.length} activeProviderKeys={activeProviderKeys} onSaveProviderKey={(provider, key) => { setSessionProviderKey(provider, key); setActiveProviderKeys((current) => ({ ...current, [provider]: true })); notify(`${provider === 'groq' ? 'Groq' : 'Hindsight'} key updated for this browser session`) }} onResetProviderKey={(provider) => { clearSessionProviderKey(provider); setActiveProviderKeys((current) => ({ ...current, [provider]: false })); notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`) }} onClear={clearData} />}
+          {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={learnedMemories.length} activeProviderKeys={activeProviderKeys} onSaveProviderKey={(provider, key) => { setSessionProviderKey(provider, key); setActiveProviderKeys((current) => ({ ...current, [provider]: true })); if (provider === 'hindsight') void refreshHindsightMemories(); notify(`${provider === 'groq' ? 'Groq' : 'Hindsight'} key updated for this browser session`) }} onResetProviderKey={(provider) => { clearSessionProviderKey(provider); setActiveProviderKeys((current) => ({ ...current, [provider]: false })); notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`) }} onClear={clearData} />}
         </main>
       </div>
 
@@ -555,16 +569,56 @@ function ContentGenerator({ draft, saved, showSaved, isGenerating, memories, onT
   </div></>
 }
 
-function AudienceKnowledge({ posts, topics, comments, memories }: { posts: Post[]; topics: { topic: string; count: number; total: number; rate: number }[]; comments: string[]; memories: string[] }) {
+function AudienceKnowledge({ posts, topics, comments, memories, isLoadingMemories, memoryError }: { posts: Post[]; topics: { topic: string; count: number; total: number; rate: number }[]; comments: string[]; memories: string[]; isLoadingMemories: boolean; memoryError?: string }) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   const windows = [{ label: 'MORNING', hours: '05–12h', start: 5, end: 12 }, { label: 'AFTERNOON', hours: '12–17h', start: 12, end: 17 }, { label: 'EVENING', hours: '17–22h', start: 17, end: 22 }, { label: 'NIGHT', hours: '22–05h', start: 22, end: 29 }]
   const heat = days.map((_, day) => windows.map((window) => posts.filter((post) => post.day === day && (window.end > 24 ? post.hour >= window.start || post.hour < window.end - 24 : post.hour >= window.start && post.hour < window.end)).length))
   const maxHeat = Math.max(1, ...heat.flat())
-  return <><PageTitle>Audience Knowledge</PageTitle><div className="stat-grid knowledge-stats"><Stat label="MEMORIES" value={memories.length} hint="Hindsight recalls in this session" icon={Brain} /><Stat label="POSTS LEARNED" value={posts.length} hint={`${posts.filter((post) => post.hour >= 0).length} with posting time`} icon={BriefcaseBusiness} /><Stat label="COMMENTS" value={comments.length} hint="Classified by the agent" icon={MessageSquareText} /><Stat label="MEMORY STATUS" value={memories.length ? 'RECALLED' : '—'} hint={memories.length ? 'Hindsight results in this session' : 'No recall in this session yet'} icon={ArrowUpRight} /></div>
-    <div className="two-column-layout knowledge-layout"><Panel><div className="panel-heading"><div><Eyebrow>CONTENT PERFORMANCE</Eyebrow><h2>High-performing topics</h2></div></div>{topics.length ? topics.map((topic, index) => <div className="knowledge-topic" key={topic.topic}><div className="topic-bar-label"><span>{topic.topic} <small>· {topic.count} posts</small></span><b>{topic.rate.toFixed(2)}% <i className={index ? 'down' : 'up'}>{index ? '−' : '+'}{Math.max(2, 64 - index * 17)}%</i></b></div><div className="meter"><span style={{ width: `${topic.rate / (topics[0]?.rate || 1) * 100}%` }} /></div></div>) : <EmptyState icon={Brain} title="No audience data">Import posts to build your audience profile.</EmptyState>}<div className="memory-callout"><Brain /><div><Eyebrow>WHAT THE AGENT REMEMBERS</Eyebrow><span>{memories[0] ?? 'Import content to start learning about your audience.'}</span></div></div></Panel>
-      <Panel><div className="panel-heading"><div><Eyebrow>WHEN TO POST</Eyebrow><h2>Best posting times</h2></div></div><div className="heatmap"><div className="heat-spacer" />{windows.map((window) => <div className="heat-label" key={window.label}>{window.label}<span>{window.hours}</span></div>)}{days.map((day, index) => <div className="heat-row" key={day}><span>{day}</span>{heat[index].map((count, windowIndex) => <div className="heat-cell" key={`${day}-${windowIndex}`} style={{ backgroundColor: count ? `rgba(0, 229, 216, ${0.2 + count / maxHeat * 0.66})` : 'var(--surface-2)' }} title={`${day}: ${count} posts`}>{count || ''}</div>)}</div>)}</div><div className="heat-legend"><span>Fewer posts</span><i /><i /><i /><i /><span>More posts</span></div></Panel></div>
-  </>
+  const memoryStatus = isLoadingMemories && !memories.length ? 'SYNCING' : memoryError && !memories.length ? 'UNAVAILABLE' : memories.length ? 'PERSISTED' : '—'
+  const memoryHint = isLoadingMemories && !memories.length ? 'Loading saved learnings from Hindsight' : memoryError && !memories.length ? 'Could not load Hindsight memories' : memories.length ? 'Saved in the Hindsight memory bank' : 'No learned facts in Hindsight yet'
+
+  return (
+    <>
+      <PageTitle>Audience Knowledge</PageTitle>
+      <div className="stat-grid knowledge-stats">
+        <Stat label="MEMORIES" value={memories.length} hint="Saved in Hindsight" icon={Brain} />
+        <Stat label="POSTS LEARNED" value={posts.length} hint={`${posts.filter((post) => post.hour >= 0).length} with posting time`} icon={BriefcaseBusiness} />
+        <Stat label="COMMENTS" value={comments.length} hint="Classified by the agent" icon={MessageSquareText} />
+        <Stat label="MEMORY STATUS" value={memoryStatus} hint={memoryHint} icon={ArrowUpRight} />
+      </div>
+      <div className="two-column-layout knowledge-layout">
+        <Panel>
+          <div className="panel-heading"><div><Eyebrow>CONTENT PERFORMANCE</Eyebrow><h2>High-performing topics</h2></div></div>
+          {topics.length ? topics.map((topic, index) => (
+            <div className="knowledge-topic" key={topic.topic}>
+              <div className="topic-bar-label"><span>{topic.topic} <small>· {topic.count} posts</small></span><b>{topic.rate.toFixed(2)}% <i className={index ? 'down' : 'up'}>{index ? '−' : '+'}{Math.max(2, 64 - index * 17)}%</i></b></div>
+              <div className="meter"><span style={{ width: `${topic.rate / (topics[0]?.rate || 1) * 100}%` }} /></div>
+            </div>
+          )) : <EmptyState icon={Brain} title="No audience data">Import posts to build your audience profile.</EmptyState>}
+          <div className="memory-callout">
+            <Brain />
+            <div>
+              <Eyebrow>WHAT THE AGENT REMEMBERS</Eyebrow>
+              {memoryError && !memories.length ? <span>{memoryError}</span> : isLoadingMemories && !memories.length ? <span>Loading saved learnings from Hindsight…</span> : memories.length ? (
+                <ul className="learned-memory-list">{memories.map((memory) => <li key={memory}>{memory}</li>)}</ul>
+              ) : <span>No learned audience insights are stored yet. Import history or analyze comments to teach Hindsight.</span>}
+            </div>
+          </div>
+        </Panel>
+        <Panel>
+          <div className="panel-heading"><div><Eyebrow>WHEN TO POST</Eyebrow><h2>Best posting times</h2></div></div>
+          <div className="heatmap">
+            <div className="heat-spacer" />
+            {windows.map((window) => <div className="heat-label" key={window.label}>{window.label}<span>{window.hours}</span></div>)}
+            {days.map((day, index) => <div className="heat-row" key={day}><span>{day}</span>{heat[index].map((count, windowIndex) => <div className="heat-cell" key={`${day}-${windowIndex}`} style={{ backgroundColor: count ? `rgba(0, 229, 216, ${0.2 + count / maxHeat * 0.66})` : 'var(--surface-2)' }} title={`${day}: ${count} posts`}>{count || ''}</div>)}</div>)}
+          </div>
+          <div className="heat-legend"><span>Fewer posts</span><i /><i /><i /><i /><span>More posts</span></div>
+        </Panel>
+      </div>
+    </>
+  )
 }
+
 
 function Recommendations({ recommendation, isGenerating, onGenerate }: { recommendation: string; isGenerating: boolean; onGenerate: () => void }) {
   return <><PageTitle>Recommendations <button className="button-primary heading-action" onClick={onGenerate} disabled={isGenerating}>{isGenerating ? 'Checking Hindsight…' : <><Sparkles /> Generate recommendation</>}</button></PageTitle>
