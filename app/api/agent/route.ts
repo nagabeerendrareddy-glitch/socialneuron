@@ -163,26 +163,27 @@ export async function POST(request: Request) {
   try {
     if (input.action === 'learning-demo-after') {
       const memoryMarker = typeof input.memoryMarker === 'string' ? input.memoryMarker.trim() : ''
-      if (!/^SEA-DEMO-[0-9a-f-]{36}$/i.test(memoryMarker)) {
-        return NextResponse.json({ error: 'A valid demo memory marker is required to verify Hindsight Recall.' }, { status: 400 })
+      if (!/^SEA-AUDIT-[0-9a-f-]{36}$/i.test(memoryMarker)) {
+        return NextResponse.json({ error: 'A valid audit memory marker is required to verify Hindsight Recall.' }, { status: 400 })
       }
 
-      let memories: string[] = []
+      let recalledMemories: string[] = []
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const payload = await recallFromHindsight(`${question}\nRequired retained memory marker: ${memoryMarker}`, hindsightApiKeys)
-        memories = extractMemories(payload)
-        if (memories.some((memory) => memory.includes(memoryMarker))) break
+        const payload = await recallFromHindsight(`${question}\nRequired retained memory marker: ${memoryMarker}`, hindsightApiKeys, 'high')
+        recalledMemories = extractMemories(payload)
+        if (recalledMemories.some((memory) => memory.includes(memoryMarker))) break
         if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)))
       }
 
-      if (!memories.some((memory) => memory.includes(memoryMarker))) {
-        throw new AgentRequestError('Hindsight Recall did not return the memory retained for this demo. The follow-up was not generated, so no unverified before/after result is shown.', 422)
+      const memories = recalledMemories.filter((memory) => memory.includes(memoryMarker))
+      if (!memories.length) {
+        throw new AgentRequestError('Hindsight Recall did not return this run’s retained evidence. The follow-up was not generated, so no unverified before/after result is shown.', 422)
       }
 
       const text = await generateWithGroq(
         'recommendation',
         question,
-        { source: 'No current-session post history or comments were supplied. Base the answer on verified Hindsight Recall evidence only.' },
+        { source: 'No current-session history was supplied. Base the answer only on the uniquely marked, verified Hindsight Recall evidence.' },
         memories,
         '',
         groqApiKey || '',

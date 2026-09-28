@@ -16,7 +16,7 @@ type AgentResult = { text?: string; memories?: string[]; reflected?: boolean; re
 type AgentAction = 'chat' | 'prediction-chat' | 'train' | 'content' | 'recommendation' | 'analysis' | 'comment-analysis' | 'retain' | 'memory-list' | 'learning-demo-before' | 'learning-demo-after'
 type ChatMode = 'normal' | 'prediction'
 type ActivityEntry = { id: string; message: string; timestamp: string; operation: string; status: 'success' | 'error' | 'pending'; details?: string; memoryCount?: number }
-type DemoResults = { before: string; after: string; recalled: string[]; verified: boolean; memoryMarker: string }
+type DemoResults = { before: string; after: string; recalled: string[]; verified: boolean; memoryMarker: string; recordCount: number }
 type Provider = 'groq' | 'hindsight'
 type ProviderKeys = { groq?: string; hindsight?: string[] }
 type ProviderKeyRing = Record<Provider, string[]>
@@ -160,6 +160,8 @@ export default function SeaDashboard() {
   const [activity, setActivity] = useState<ActivityEntry[]>([{ id: 'workspace-ready', message: 'Workspace ready · import history or load demo data', timestamp: new Date().toISOString(), operation: 'WORKSPACE', status: 'success' }])
   const [demoResults, setDemoResults] = useState<DemoResults | null>(null)
   const [demoError, setDemoError] = useState('')
+  const [demoDatasetActive, setDemoDatasetActive] = useState(false)
+  const [humanReviewApproved, setHumanReviewApproved] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [csvOpen, setCsvOpen] = useState(false)
   const [csv, setCsv] = useState('')
@@ -267,10 +269,10 @@ export default function SeaDashboard() {
   }
   function loadDemo() {
     const demoPosts = makeSamplePosts()
-    setPosts(demoPosts); setComments(sampleComments); setMemories([])
-    log('Loaded demo dataset · storing sample engagement history in Hindsight')
-    void retainLearning(`Demo historical social-post records (${demoPosts.length} posts): ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Sample audience comments: ${JSON.stringify(sampleComments.slice(0, 20))}. These records are illustrative demo data, not real account metrics.`, 'demo engagement history')
-    notify('Demo data loaded · sending learning to Hindsight')
+    setPosts(demoPosts); setComments(sampleComments); setMemories([]); setDemoDatasetActive(true)
+    setDemoResults(null); setDemoError(''); setHumanReviewApproved(false)
+    log('Loaded illustrative demo dataset · not sent to Hindsight or used as live audit evidence')
+    notify('Illustrative demo data loaded · excluded from live memory proof')
   }
   function importCsv() {
     if (!csv.trim()) { setCsvStatus('Paste CSV data or choose a file first.'); return }
@@ -289,7 +291,7 @@ export default function SeaDashboard() {
       return { id: `csv-${Date.now()}-${index}`, date, platform: String(row.platform), content: String(row.content), topic: String(row.topic), type: String(row.type), likes: Number(row.likes) || 0, comments: Number(row.comments) || 0, shares: Number(row.shares) || 0, saves: Number(row.saves) || 0, hour, day }
     })
     if (!imported.length) { setCsvStatus('No valid rows found in the CSV.'); return }
-    setPosts((current) => [...imported, ...current]); log(`Imported ${imported.length} posts from CSV`)
+    setPosts((current) => demoDatasetActive ? imported : [...imported, ...current]); if (demoDatasetActive) setComments([]); setDemoDatasetActive(false); setDemoResults(null); setDemoError(''); setHumanReviewApproved(false); log(`Imported ${imported.length} posts from CSV`)
     void retainLearning(`Imported historical social post engagement data (${imported.length} rows): ${JSON.stringify(imported.slice(0, 40).map(({ date, platform, content, topic, type, likes, comments, shares, saves, hour }) => ({ date, platform, content: content.slice(0, 500), topic, format: type, likes, comments, shares, saves, hour })))}. Analyze the provided records for audience interests, relative performance by topic and format, posting-time patterns, and notable engagement differences.`, `CSV engagement history (${imported.length} posts)`)
     setCsvStatus(`Successfully imported ${imported.length} posts.`); notify(`Imported ${imported.length} posts`)
     window.setTimeout(() => { setCsvOpen(false); setCsvStatus(''); setCsv('') }, 1000)
@@ -335,7 +337,7 @@ export default function SeaDashboard() {
   async function analyzeComments(lines: string[]) {
     const cleaned = lines.map((line) => line.trim()).filter(Boolean).slice(0, 120)
     if (!cleaned.length) { notify('Add a few comments to analyze first'); return }
-    setCommentAnalysis(cleaned); setComments(cleaned); setCommentInsight(''); setPending('comment-analysis')
+    setCommentAnalysis(cleaned); setComments(cleaned); if (demoDatasetActive) setPosts([]); setDemoDatasetActive(false); setDemoResults(null); setDemoError(''); setHumanReviewApproved(false); setCommentInsight(''); setPending('comment-analysis')
     log('Groq LLM · analyzing comments with available audience evidence', 'pending')
     try {
       const result = await requestAgent('comment-analysis', {
@@ -452,47 +454,60 @@ export default function SeaDashboard() {
   }
   async function runLearningDemo() {
     if (pending) return
-    const question = 'What should I post next for the SEA Hindsight demo cohort, and why?'
-    const demoPosts = makeSamplePosts()
+    const realPosts = posts.filter((post) => !post.id.startsWith('demo-'))
+    const realComments = demoDatasetActive ? [] : comments
+    if (!realPosts.length && !realComments.length) {
+      setDemoResults(null)
+      setDemoError('Import account history with CSV or submit actual audience comments before running the live proof. Illustrative demo data is excluded.')
+      setHumanReviewApproved(false)
+      notify('Import real audience history or comments before running the proof')
+      return
+    }
+
+    const auditedPosts = realPosts.slice(0, 12).map(({ date, platform, content, topic, type, likes, comments, shares, saves, hour }) => ({ date, platform, content: content.slice(0, 250), topic, format: type, likes, comments, shares, saves, hour }))
+    const auditedComments = realComments.slice(0, 20).map((comment) => comment.slice(0, 250))
+    const recordCount = auditedPosts.length + auditedComments.length
+    const question = 'Using only the imported audience records in Hindsight Recall, identify one supported topic, format, or audience-interest pattern and recommend a next post. Cite the specific recalled evidence. If the records do not support a pattern, say so.'
     const demoProviders: Provider[] = ['groq', 'hindsight']
     const taskKeys = currentProviderKeys(demoProviders)
-    const memoryMarker = `SEA-DEMO-${crypto.randomUUID()}`
+    const memoryMarker = `SEA-AUDIT-${crypto.randomUUID()}`
+    const learning = `Verification token for this retained audience snapshot: ${memoryMarker}. Keep this exact token attached to the following user-supplied evidence. ${recordCount} records are included (${auditedPosts.length} posts, ${auditedComments.length} comments). This user-imported data has not been independently verified. Use only these records; do not infer beyond them. Imported posts: ${JSON.stringify(auditedPosts)}. User-supplied comments: ${JSON.stringify(auditedComments)}.`
     setPending('learning-demo-before')
     setDemoResults(null)
     setDemoError('')
+    setHumanReviewApproved(false)
     setMemories([])
     let pendingActivityId: string | undefined
     let pendingOperation = 'Groq LLM'
     try {
-      pendingActivityId = log('Groq LLM · generating baseline with no Hindsight Recall or sample history', 'pending')
-      const before = await requestAgent('learning-demo-before', { question, context: { source: 'No current-session post history or comments supplied.' } }, taskKeys)
-      updateActivity(pendingActivityId, 'Groq LLM · generated baseline with no Hindsight Recall or sample history', 'success', { details: before.text })
+      pendingActivityId = log('Groq LLM · generating same-question baseline without Hindsight Recall', 'pending')
+      const before = await requestAgent('learning-demo-before', { question, context: { source: 'No current Hindsight Recall or imported history supplied to the baseline.' } }, taskKeys)
+      updateActivity(pendingActivityId, 'Groq LLM · generated baseline without Hindsight Recall', 'success', { details: before.text })
       pendingActivityId = undefined
 
-      const learning = `Memory proof marker: ${memoryMarker}. SEA Hindsight demo cohort: sample audience of early-career developers interested in practical automation. Illustrative sample posts (not real account analytics): ${JSON.stringify(demoPosts.map(({ topic, type, hour, likes, comments, shares, saves }) => ({ topic, format: type, hour, likes, comments, shares, saves })))}. Illustrative audience comments: ${JSON.stringify(sampleComments)}. Treat as historical sample evidence. Derive relative topic, format, posting-time performance, and audience interests from these records. Do not claim these are real account results.`
       pendingOperation = 'Hindsight RETAIN'
-      pendingActivityId = log('Hindsight RETAIN · storing sample history and unique proof marker', 'pending')
+      pendingActivityId = log(`Hindsight RETAIN · storing ${recordCount} user-supplied records with a unique audit marker`, 'pending')
       await requestAgent('retain', { memory: learning }, taskKeys)
-      updateActivity(pendingActivityId, 'Hindsight RETAIN · Hindsight accepted the sample history and proof marker', 'success', { details: learning.slice(0, 900) })
+      updateActivity(pendingActivityId, 'Hindsight RETAIN · stored this audit’s user-supplied evidence', 'success', { details: learning.slice(0, 900) })
       pendingActivityId = undefined
 
       pendingOperation = 'Hindsight RECALL verification'
-      pendingActivityId = log('Hindsight RECALL · verifying the exact memory saved in this run', 'pending')
+      pendingActivityId = log('Hindsight RECALL · verifying the exact evidence saved in this run', 'pending')
       const after = await requestAgent('learning-demo-after', { question, memoryMarker }, taskKeys)
       if (!after.retainedMemoryVerified || !after.memories?.some((memory) => memory.includes(memoryMarker))) {
-        throw new Error('Hindsight Recall did not verify this run’s retained memory. The follow-up is not shown as a successful demo.')
+        throw new Error('Hindsight Recall did not verify this run’s retained records. The follow-up is not shown as a successful proof.')
       }
       setMemories(after.memories)
-      updateActivity(pendingActivityId, 'Hindsight RECALL · retrieved this run’s uniquely marked memory', 'success', { memoryCount: after.memories.length, details: after.memories.join(' · ') })
+      updateActivity(pendingActivityId, 'Hindsight RECALL · retrieved this run’s uniquely marked user-supplied evidence', 'success', { memoryCount: after.memories.length, details: after.memories.join(' · ') })
       pendingActivityId = undefined
-      log('Groq LLM · generated the same-question follow-up using recalled memory only', 'success', { details: after.text })
-      setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories, verified: true, memoryMarker })
-      notify('Verified memory demo complete · Hindsight Recall changed the evidence available to the agent')
+      log('Groq LLM · generated the same-question follow-up using verified recalled evidence', 'success', { details: after.text })
+      setDemoResults({ before: before.text ?? '', after: after.text ?? '', recalled: after.memories, verified: true, memoryMarker, recordCount })
+      notify('Live memory round-trip verified · review the cited evidence and follow-up before approving')
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The memory-learning demo could not finish.'
+      const message = error instanceof Error ? error.message : 'The live memory proof could not finish.'
       setDemoError(message)
       if (pendingActivityId) updateActivity(pendingActivityId, `${pendingOperation} failed · ${message}`, 'error')
-      log(`Memory Learning Demo stopped · ${message}`, 'error')
+      log(`Live Memory Proof stopped · ${message}`, 'error')
       notify(message)
     } finally {
       advanceProviderKeys(demoProviders)
@@ -500,11 +515,12 @@ export default function SeaDashboard() {
     }
   }
   function clearData() {
-    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setDemoResults(null); log('Workspace session cleared · Hindsight long-term memories retained') ; notify('Workspace session cleared')
+    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setDemoResults(null); setDemoError(''); setDemoDatasetActive(false); setHumanReviewApproved(false); log('Workspace session cleared · Hindsight long-term memories retained') ; notify('Workspace session cleared')
   }
 
+  const hasActualAudienceData = posts.some((post) => !post.id.startsWith('demo-')) || (!demoDatasetActive && comments.length > 0)
   const responseChanged = Boolean(demoResults?.verified && demoResults.before.trim() !== demoResults.after.trim())
-  const verdict = responseChanged ? 'READY' : demoError ? 'PROOF BLOCKED' : demoResults?.verified ? 'NEEDS FIXES' : pending === 'learning-demo-before' ? 'RUNNING' : 'AWAITING PROOF'
+  const verdict = responseChanged && humanReviewApproved ? 'READY' : responseChanged ? 'AWAITING REVIEW' : demoError && !hasActualAudienceData ? 'DATA REQUIRED' : demoError ? 'PROOF BLOCKED' : demoResults?.verified ? 'NEEDS FIXES' : pending === 'learning-demo-before' ? 'RUNNING' : 'AWAITING PROOF'
 
   return (
     <div className="sea-app">
@@ -527,7 +543,7 @@ export default function SeaDashboard() {
         </header>
 
         <main className="sea-main" key={page}>
-          {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} demoResults={demoResults} demoRunning={pending === 'learning-demo-before'} onRunLearningDemo={runLearningDemo} onDemo={loadDemo} onNavigate={setPage} />}
+          {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} demoResults={demoResults} demoDatasetActive={demoDatasetActive} demoRunning={pending === 'learning-demo-before'} onRunLearningDemo={runLearningDemo} onDemo={loadDemo} onNavigate={setPage} />}
           {page === 'post' && <PostAnalyzer analysis={analysis} analysisLoading={pending === 'analysis'} onAnalyze={analyzePost} />}
           {page === 'comments' && <CommentAnalyzer comments={comments} analysis={commentAnalysis} insight={commentInsight} isAnalyzing={pending === 'comment-analysis'} memories={memories} onAnalyze={analyzeComments} />}
           {page === 'content' && <ContentGenerator draft={draft} saved={savedDrafts} showSaved={showSaved} isGenerating={pending === 'content'} memories={memories} onToggleSaved={() => setShowSaved(!showSaved)} onGenerate={generateContent} onSave={saveDraft} onCopy={() => { void navigator.clipboard?.writeText(draft); notify('Draft copied to clipboard') }} />}
@@ -551,7 +567,7 @@ export default function SeaDashboard() {
                 <h2 id="activity-audit-title">Hindsight submission audit</h2>
                 <p>Verified against the running retain → recall → response flow, not a README claim.</p>
               </div>
-              <div className={`activity-verdict ${responseChanged ? 'is-ready' : demoError ? 'is-blocked' : 'needs-proof'}`} aria-live="polite">
+              <div className={`activity-verdict ${humanReviewApproved && responseChanged ? 'is-ready' : demoError && hasActualAudienceData ? 'is-blocked' : 'needs-proof'}`} aria-live="polite">
                 <span>VERDICT</span>
                 <strong>{verdict}</strong>
               </div>
@@ -562,35 +578,36 @@ export default function SeaDashboard() {
                 <h3>What works</h3>
                 <ul>
                   <li>Hindsight RETAIN and RECALL are real API operations; recalled memories are included in the agent&apos;s system prompt.</li>
-                  <li>The learning demo asks the same question before and after storing a uniquely marked memory.</li>
+                  <li>The live proof asks the same question before and after retaining user-supplied records with a unique audit marker.</li>
                   <li>The follow-up is withheld unless Recall returns this run&apos;s exact marker.</li>
                 </ul>
               </section>
               <section>
                 <h3>What is missing / at risk</h3>
                 <ul>
-                  <li>{responseChanged ? 'The verified run uses an illustrative demo cohort; import real audience history before making claims about a specific account.' : demoError ? `The live proof is blocked: ${demoError}` : demoResults?.verified ? 'Recall returned the marker, but the before/after answers are identical; a visible response improvement is not demonstrated.' : 'A live, verified memory round-trip has not been recorded in this session yet.'}</li>
-                  <li>Demo posts and comments are illustrative, not real account metrics. A changed answer still needs human review to confirm it is better and grounded in recalled evidence.</li>
+                  <li>{!hasActualAudienceData ? demoDatasetActive ? 'Only illustrative demo data is loaded. Import actual account history or submit real audience comments; demo records are excluded from proof.' : 'No imported account posts or actual audience comments are available. Add user-supplied history to run the live proof.' : demoError ? `The live proof is blocked: ${demoError}` : demoResults?.verified ? responseChanged ? humanReviewApproved ? `The live round-trip changed the same-question response using ${demoResults.recordCount} user-supplied records; the dataset is not independently verified.` : 'The live round-trip changed the response using this run’s recalled evidence; human review is still required.' : 'Recall returned this run’s marker, but the before/after answers are identical; a response change is not demonstrated.' : 'A live, verified memory round-trip has not been recorded in this session yet.'}</li>
+                  <li>CSV rows and comments are user-supplied and not independently verified. Synthetic demo data is no longer written to Hindsight; a reviewer must decide whether the changed answer is better and grounded in the recalled records.</li>
                 </ul>
-                <p className="activity-fix"><strong>Most important fix:</strong> {responseChanged ? 'replace illustrative examples with imported audience history and review the recalled evidence before submission.' : demoError ? 'check the provider key and available credits in Settings, then rerun the proof.' : demoResults?.verified ? 'make the follow-up demonstrably use recalled facts, then rerun with imported audience history.' : 'run the proof with configured provider keys, then verify that Recall changes the same-question response.'}</p>
+                <p className="activity-fix"><strong>Most important fix:</strong> {!hasActualAudienceData ? 'import actual audience history or submit real audience comments; demo fixtures cannot be used for proof.' : demoError ? 'resolve the reported provider or credit issue, then rerun with user-supplied audience history.' : demoResults?.verified && responseChanged ? humanReviewApproved ? 'keep the imported data source and human review attached to any submission; neither is an independent account validation.' : 'review the exact recalled evidence and both answers, then approve only if the follow-up is better and grounded.' : demoResults?.verified ? 'inspect the same-question answers; a verified marker without a changed answer is not evidence of improved output.' : 'run the live retain → recall → response check with configured provider keys.'}</p>
               </section>
             </div>
 
             <section className="activity-memory-proof" aria-labelledby="activity-memory-proof-title">
               <div className="activity-proof-heading">
                 <h3 id="activity-memory-proof-title">Memory proof</h3>
-                {demoResults?.verified && <span className={responseChanged ? 'activity-proof-verified' : 'activity-proof-warning'}>{responseChanged ? 'MARKER + RESPONSE CHANGED' : 'MARKER RETRIEVED · RESPONSE UNCHANGED'}</span>}
+                {demoResults?.verified && <span className={humanReviewApproved && responseChanged ? 'activity-proof-verified' : 'activity-proof-warning'}>{responseChanged ? humanReviewApproved ? 'MARKER + RESPONSE REVIEWED' : 'MARKER + RESPONSE CHANGED · REVIEW REQUIRED' : 'MARKER RETRIEVED · RESPONSE UNCHANGED'}</span>}
               </div>
               {demoResults?.verified ? <>
                 <div className="activity-proof-grid">
                   <article><span>BEFORE · NO RECALL</span><p>{demoResults.before}</p></article>
                   <article><span>AFTER · RECALL USED</span><p>{demoResults.after}</p></article>
                 </div>
-                <p className="activity-proof-marker">Verified marker: <code>{demoResults.memoryMarker}</code></p>
+                <p className="activity-proof-marker">Verified marker: <code>{demoResults.memoryMarker}</code> · {demoResults.recordCount} user-supplied records</p>
                 {demoResults.recalled.length > 0 && <details className="activity-recalled-evidence"><summary>Show recalled evidence ({demoResults.recalled.length})</summary><p>{demoResults.recalled.join(' · ')}</p></details>}
-              </> : <p className="activity-proof-empty">{demoError ? `Live proof failed: ${demoError}` : 'No before/after proof is shown until Hindsight returns the exact memory marker. Run the check to record a real retain → later recall → response sequence.'}</p>}
+                {responseChanged && <label className="activity-human-review"><input type="checkbox" checked={humanReviewApproved} onChange={(event) => setHumanReviewApproved(event.target.checked)} /> I reviewed both answers and the recalled evidence, and confirm the follow-up is better and grounded in these records.</label>}
+              </> : <p className="activity-proof-empty">{!hasActualAudienceData ? demoDatasetActive ? 'Illustrative demo records are excluded. Import a CSV or submit actual audience comments to enable a live proof.' : 'No imported account posts or actual audience comments are available yet. Import a CSV or submit comments to enable the live proof.' : demoError ? `Live proof failed: ${demoError}` : 'Run the live retain → recall → response sequence. No synthetic metrics are used.'}</p>}
               <button className="activity-audit-run" onClick={() => { setActivityOpen(true); void runLearningDemo() }} disabled={Boolean(pending)}>
-                <Brain />{pending === 'learning-demo-before' ? 'Running verified memory proof…' : demoResults?.verified ? 'Run proof again' : 'Run verified memory proof'}
+                <Brain />{pending === 'learning-demo-before' ? 'Running live memory proof…' : demoResults?.verified ? 'Run proof again' : 'Run live memory proof'}
               </button>
             </section>
           </section>
@@ -623,23 +640,23 @@ function Eyebrow({ children }: { children: React.ReactNode }) { return <div clas
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) { return <section className={`panel ${className}`}>{children}</section> }
 function EmptyState({ icon: Icon, title, children }: { icon: typeof Bot; title: string; children: React.ReactNode }) { return <div className="empty-state"><Icon /><strong>{title}</strong><p>{children}</p></div> }
 
-function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResults, demoRunning, onRunLearningDemo, onDemo, onNavigate }: { posts: Post[]; comments: string[]; topics: { topic: string; count: number; total: number; rate: number }[]; positiveRate: number; bestTime: string; demoResults: DemoResults | null; demoRunning: boolean; onRunLearningDemo: () => void; onDemo: () => void; onNavigate: (page: PageId) => void }) {
+function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResults, demoDatasetActive, demoRunning, onRunLearningDemo, onDemo, onNavigate }: { posts: Post[]; comments: string[]; topics: { topic: string; count: number; total: number; rate: number }[]; positiveRate: number; bestTime: string; demoResults: DemoResults | null; demoDatasetActive: boolean; demoRunning: boolean; onRunLearningDemo: () => void; onDemo: () => void; onNavigate: (page: PageId) => void }) {
   const totalEngagement = posts.reduce((sum, post) => sum + post.likes + post.comments + post.shares + post.saves, 0)
   const avgRate = posts.length ? (posts.reduce((sum, post) => sum + post.likes, 0) / posts.length / 100).toFixed(2) : '0.00'
   return <>
     <PageTitle>Dashboard <button className="button-secondary heading-action" onClick={onDemo}><Sparkles /> Load demo data</button></PageTitle>
   <div className="stat-grid">
-  <Stat label="TOTAL POSTS" value={posts.length} hint="Historical posts learned" icon={BriefcaseBusiness} />
-  <Stat label="AVG ENGAGEMENT" value={`${avgRate}%`} hint="Likes per post" icon={Gauge} />
-  <Stat label="TOTAL ENGAGEMENT" value={totalEngagement.toLocaleString()} hint="Likes, comments, shares & saves" icon={ArrowUpRight} />
-  <Stat label="AUDIENCE SENTIMENT" value={`${positiveRate}%`} hint={`${comments.length} comments analyzed`} icon={MessageSquareText} />
+  <Stat label="TOTAL POSTS" value={posts.length} hint={demoDatasetActive ? 'Illustrative demo records · not account data' : 'Imported or user-supplied records'} icon={BriefcaseBusiness} />
+  <Stat label="AVG ENGAGEMENT" value={`${avgRate}%`} hint={demoDatasetActive ? 'Illustrative sample · not account metrics' : 'Likes per supplied post'} icon={Gauge} />
+  <Stat label="TOTAL ENGAGEMENT" value={totalEngagement.toLocaleString()} hint={demoDatasetActive ? 'Illustrative sample · not account metrics' : 'Likes, comments, shares & saves'} icon={ArrowUpRight} />
+  <Stat label="AUDIENCE SENTIMENT" value={`${positiveRate}%`} hint={demoDatasetActive ? 'Illustrative sample comments · not account sentiment' : `${comments.length} user-supplied comments analyzed`} icon={MessageSquareText} />
   </div>
-  <Panel className="learning-demo-panel"><div className="panel-heading"><div><Eyebrow>VERIFIED HINDSIGHT FLOW</Eyebrow><h2>Memory Learning Demo</h2><p className="muted">Ask one question without history, retain sample observations, then ask the identical question with no sample data in the prompt. The follow-up is shown only after Recall returns this run&apos;s unique marker.</p></div><button className="button-primary" onClick={onRunLearningDemo} disabled={demoRunning}>{demoRunning ? 'Verifying memory flow…' : 'Run verified demo'}</button></div>
-  <div className="learning-demo-grid"><section><Eyebrow>BEFORE · NO RECALL OR HISTORY</Eyebrow><p>{demoResults?.before ?? 'The baseline receives the question only. No sample posts, comments, or Hindsight memories are provided.'}</p></section><section><Eyebrow>AFTER · VERIFIED HINDSIGHT RECALL</Eyebrow>{demoResults?.verified ? <><p>{demoResults.after}</p><small className="demo-proof-status">Recall verified · {demoResults.recalled.length} matching memory result(s) · marker {demoResults.memoryMarker}</small><div className="demo-memory-evidence"><strong>Memory actually recalled</strong><p>{demoResults.recalled.join(' · ').slice(0, 700)}{demoResults.recalled.join(' · ').length > 700 ? '…' : ''}</p></div></> : <p>The follow-up will not be generated or shown unless Hindsight returns this run&apos;s uniquely marked memory.</p>}</section></div></Panel>
+  <Panel className="learning-demo-panel"><div className="panel-heading"><div><Eyebrow>{demoDatasetActive ? 'ILLUSTRATIVE DEMO · NOT ACCOUNT DATA' : 'LIVE HINDSIGHT FLOW'}</Eyebrow><h2>Live Memory Proof</h2><p className="muted">The same question is answered before and after Hindsight retains user-supplied posts or comments. Demo fixtures are excluded; the follow-up appears only after Recall returns this run&apos;s uniquely marked evidence.</p></div><button className="button-primary" onClick={onRunLearningDemo} disabled={demoRunning}>{demoRunning ? 'Verifying memory flow…' : 'Run live proof'}</button></div>
+  <div className="learning-demo-grid"><section><Eyebrow>BEFORE · NO RECALL</Eyebrow><p>{demoResults?.before ?? 'Import actual audience history or submit real comments to enable the live proof. The baseline receives no Hindsight history.'}</p></section><section><Eyebrow>AFTER · VERIFIED HINDSIGHT RECALL</Eyebrow>{demoResults?.verified ? <><p>{demoResults.after}</p><small className="demo-proof-status">Recall verified · {demoResults.recordCount} supplied records · marker {demoResults.memoryMarker}</small><div className="demo-memory-evidence"><strong>Memory actually recalled</strong><p>{demoResults.recalled.join(' · ').slice(0, 700)}{demoResults.recalled.join(' · ').length > 700 ? '…' : ''}</p></div></> : <p>The follow-up is withheld unless Recall returns this run&apos;s uniquely marked user-supplied evidence.</p>}</section></div></Panel>
   <div className="dashboard-grid">
 
       <Panel className="performance-panel"><div className="panel-heading"><div><Eyebrow>PERFORMANCE</Eyebrow><h2>Engagement by topic</h2></div><button className="text-action" onClick={() => onNavigate('knowledge')}>View insights <ArrowUpRight /></button></div>
-        {topics.length ? <div className="topic-bars">{topics.slice(0, 5).map((topic, index) => <div className="topic-bar-row" key={topic.topic}><div className="topic-bar-label"><span>{topic.topic}</span><small>{topic.count} posts</small><b>{topic.rate.toFixed(2)}%</b></div><div className="meter"><span style={{ width: `${Math.max(10, topic.total / (topics[0]?.total || 1) * 100)}%` }} /></div>{index === 0 && <div className="topic-caption">Your audience saves practical, step-by-step content.</div>}</div>)}</div> : <EmptyState icon={FileSearch} title="No posts yet">Import a CSV to begin learning from your content.</EmptyState>}
+        {topics.length ? <div className="topic-bars">{topics.slice(0, 5).map((topic, index) => <div className="topic-bar-row" key={topic.topic}><div className="topic-bar-label"><span>{topic.topic}</span><small>{topic.count} posts</small><b>{topic.rate.toFixed(2)}%</b></div><div className="meter"><span style={{ width: `${Math.max(10, topic.total / (topics[0]?.total || 1) * 100)}%` }} /></div>{index === 0 && <div className="topic-caption">{demoDatasetActive ? 'Illustrative sample result · not account data.' : 'Performance calculated from the supplied post records.'}</div>}</div>)}</div> : <EmptyState icon={FileSearch} title="No posts yet">Import a CSV to begin learning from your content.</EmptyState>}
       </Panel>
       <Panel className="summary-panel"><div className="panel-heading"><div><Eyebrow>YOUR AUDIENCE</Eyebrow><h2>At a glance</h2></div><span className="live-pill"><span /> HINDSIGHT · social-media-agent</span></div>
         <div className="summary-highlight"><div className="summary-icon"><Lightbulb /></div><div><small>TOP PERFORMING TOPIC</small><strong>{topics[0]?.topic ?? 'Not enough data'}</strong><span>{topics[0] ? `${topics[0].rate.toFixed(2)}% average likes per post` : 'Import post history to unlock insights.'}</span></div></div>

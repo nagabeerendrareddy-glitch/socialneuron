@@ -64,8 +64,8 @@ export function retainInHindsight(items: string[], apiKey?: string | string[]) {
   return request('/memories', { items: items.map((content) => ({ content })) }, apiKey)
 }
 
-export function recallFromHindsight(query: string, apiKey?: string | string[]) {
-  return request('/memories/recall', { query, top_k: 10 }, apiKey)
+export function recallFromHindsight(query: string, apiKey?: string | string[], budget: 'low' | 'mid' | 'high' = 'mid') {
+  return request('/memories/recall', { query, max_tokens: 4096, budget }, apiKey)
 }
 
 export function reflectWithHindsight(query: string, apiKey?: string | string[]) {
