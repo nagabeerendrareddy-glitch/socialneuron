@@ -363,7 +363,7 @@ export default function SeaDashboard() {
     setChatInput('')
     setChat((items) => [...items, { role: 'user', text: query }])
     setPending(action)
-    log(chatMode === 'prediction' ? 'Dataset predictor · estimating engagement from 5,000 synthetic examples' : 'Groq LLM · responding with available audience evidence', 'pending')
+    const activityId = log(chatMode === 'prediction' ? 'Dataset predictor · estimating engagement from 5,000 synthetic examples' : 'Groq LLM · responding with available audience evidence', 'pending')
     try {
       const result = await requestAgent(action, { question: query, context: currentContext() })
       if (chatMode === 'normal') {
@@ -372,11 +372,11 @@ export default function SeaDashboard() {
         else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
         if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
       }
-      log(chatMode === 'prediction' ? 'Dataset predictor · returned a cohort-based estimate' : 'Groq LLM · generated a response', 'success', { details: result.text })
+      updateActivity(activityId, chatMode === 'prediction' ? 'Dataset predictor · returned a cohort-based estimate' : 'Groq LLM · generated a response', 'success', { details: result.text })
       setChat((items) => [...items, { role: 'agent', text: result.text ?? '' }])
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The agent request failed. Try again.'
-      log(`Agent request failed · ${message}`, 'error')
+      updateActivity(activityId, `Agent request failed · ${message}`, 'error')
       setChat((items) => [...items, { role: 'agent', text: message }])
     } finally {
       setPending(null)
