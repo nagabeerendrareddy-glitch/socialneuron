@@ -473,6 +473,8 @@ export default function SeaDashboard() {
     setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setDemoResults(null); log('Workspace session cleared · Hindsight long-term memories retained') ; notify('Workspace session cleared')
   }
 
+  const responseChanged = Boolean(demoResults?.verified && demoResults.before.trim() !== demoResults.after.trim())
+
   return (
     <div className="sea-app">
       <aside className="sea-sidebar" aria-label="Main navigation">
@@ -510,10 +512,63 @@ export default function SeaDashboard() {
         <button className="activity-heading" onClick={() => setActivityOpen(!activityOpen)} aria-expanded={activityOpen}>
           <span className="activity-prompt">&gt;_</span><span className="activity-label">HINDSIGHT MEMORY ACTIVITY</span><ArrowRight className="activity-chevron-right" /><span className="activity-latest">{activity[0]?.message ?? 'No activity yet'}</span>{activityOpen ? <ChevronDown /> : <ChevronUp />}
         </button>
-        {activityOpen && <div className="activity-list">{activity.map((entry) => <article className={`activity-entry activity-${entry.status}`} key={entry.id}>
-          <div className="activity-entry-heading"><span className="activity-operation">{entry.operation}</span><span className="activity-status">{entry.status}</span>{typeof entry.memoryCount === 'number' && <span className="activity-count">{entry.memoryCount} memories</span>}<time dateTime={entry.timestamp} title={new Date(entry.timestamp).toLocaleString()}>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time></div>
-          <p>{entry.message}</p>{entry.details && <details><summary>Evidence / operation details</summary><p>{entry.details}</p></details>}
-        </article>)}</div>}
+        {activityOpen && <div className="activity-panel">
+          <section className="activity-audit" aria-labelledby="activity-audit-title">
+            <div className="activity-audit-header">
+              <div>
+                <span className="activity-audit-kicker">CODE CHECK + LIVE MEMORY PROOF</span>
+                <h2 id="activity-audit-title">Hindsight submission audit</h2>
+                <p>Verified against the running retain → recall → response flow, not a README claim.</p>
+              </div>
+              <div className={`activity-verdict ${demoResults?.verified ? 'is-ready' : 'needs-proof'}`} aria-live="polite">
+                <span>VERDICT</span>
+                <strong>{responseChanged ? 'READY' : 'NEEDS FIXES'}</strong>
+              </div>
+            </div>
+
+            <div className="activity-audit-columns">
+              <section>
+                <h3>What works</h3>
+                <ul>
+                  <li>Hindsight RETAIN and RECALL are real API operations; recalled memories are included in the agent&apos;s system prompt.</li>
+                  <li>The learning demo asks the same question before and after storing a uniquely marked memory.</li>
+                  <li>The follow-up is withheld unless Recall returns this run&apos;s exact marker.</li>
+                </ul>
+              </section>
+              <section>
+                <h3>What is missing / at risk</h3>
+                <ul>
+                  <li>{responseChanged ? 'The verified run uses an illustrative demo cohort; import real audience history before making claims about a specific account.' : demoResults?.verified ? 'Recall returned the marker, but the before/after answers are identical; a visible response improvement is not demonstrated.' : 'A live, verified memory round-trip has not been recorded in this session yet.'}</li>
+                  <li>Demo posts and comments are illustrative, not real account metrics. A changed answer still needs human review to confirm it is better and grounded in recalled evidence.</li>
+                </ul>
+                <p className="activity-fix"><strong>Most important fix:</strong> {responseChanged ? 'replace illustrative examples with imported audience history and review the recalled evidence before submission.' : demoResults?.verified ? 'make the follow-up demonstrably use recalled facts, then rerun with imported audience history.' : 'run the proof with configured provider keys, then verify that Recall changes the same-question response.'}</p>
+              </section>
+            </div>
+
+            <section className="activity-memory-proof" aria-labelledby="activity-memory-proof-title">
+              <div className="activity-proof-heading">
+                <h3 id="activity-memory-proof-title">Memory proof</h3>
+                {demoResults?.verified && <span className={responseChanged ? 'activity-proof-verified' : 'activity-proof-warning'}>{responseChanged ? 'MARKER + RESPONSE CHANGED' : 'MARKER RETRIEVED · RESPONSE UNCHANGED'}</span>}
+              </div>
+              {demoResults?.verified ? <>
+                <div className="activity-proof-grid">
+                  <article><span>BEFORE · NO RECALL</span><p>{demoResults.before}</p></article>
+                  <article><span>AFTER · RECALL USED</span><p>{demoResults.after}</p></article>
+                </div>
+                <p className="activity-proof-marker">Verified marker: <code>{demoResults.memoryMarker}</code></p>
+                {demoResults.recalled.length > 0 && <details className="activity-recalled-evidence"><summary>Show recalled evidence ({demoResults.recalled.length})</summary><p>{demoResults.recalled.join(' · ')}</p></details>}
+              </> : <p className="activity-proof-empty">No before/after proof is shown until Hindsight returns the exact memory marker. Run the check to record a real retain → later recall → response sequence.</p>}
+              <button className="activity-audit-run" onClick={() => { setActivityOpen(true); void runLearningDemo() }} disabled={Boolean(pending)}>
+                <Brain />{pending === 'learning-demo-before' ? 'Running verified memory proof…' : demoResults?.verified ? 'Run proof again' : 'Run verified memory proof'}
+              </button>
+            </section>
+          </section>
+
+          <div className="activity-list" aria-label="Hindsight operation log">{activity.map((entry) => <article className={`activity-entry activity-${entry.status}`} key={entry.id}>
+            <div className="activity-entry-heading"><span className="activity-operation">{entry.operation}</span><span className="activity-status">{entry.status}</span>{typeof entry.memoryCount === 'number' && <span className="activity-count">{entry.memoryCount} memories</span>}<time dateTime={entry.timestamp} title={new Date(entry.timestamp).toLocaleString()}>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time></div>
+            <p>{entry.message}</p>{entry.details && <details><summary>Evidence / operation details</summary><p>{entry.details}</p></details>}
+          </article>)}</div>
+        </div>}
       </section>
 
       {csvOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCsvOpen(false) }}>
