@@ -182,11 +182,15 @@ export async function POST(request: Request) {
       }
 
       let recalledMemories: string[] = []
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const payload = await recallFromHindsight(`${question}\nRequired retained memory marker: ${memoryMarker}`, hindsightApiKeys, 'high')
-        recalledMemories = extractMemories(payload)
+      for (let attempt = 0; attempt < 7; attempt += 1) {
+        const payload = await recallFromHindsight(
+          `Retrieve the exact retained audience records containing this unique marker: ${memoryMarker}. Return the original record text verbatim.`,
+          hindsightApiKeys,
+          'high',
+        )
+        recalledMemories = extractMemories(payload, 100)
         if (recalledMemories.some((memory) => memory.includes(memoryMarker))) break
-        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)))
+        if (attempt < 6) await new Promise((resolve) => setTimeout(resolve, Math.min(750 * 2 ** attempt, 5_000)))
       }
 
       const memories = recalledMemories.filter((memory) => memory.includes(memoryMarker))

@@ -76,18 +76,23 @@ function collectText(value: unknown): string[] {
   if (typeof value === 'string') return value.trim() ? [value.trim()] : []
   if (Array.isArray(value)) return value.flatMap(collectText)
   if (!value || typeof value !== 'object') return []
+
   const record = value as JsonRecord
-  for (const key of ['results', 'memories', 'items', 'facts', 'relevant_facts', 'data']) {
-    if (Array.isArray(record[key])) return collectText(record[key])
+  const textFields = ['text', 'content', 'fact', 'memory', 'statement']
+  const collectionFields = ['results', 'memories', 'items', 'facts', 'relevant_facts', 'data', 'recall', 'response', 'result', 'chunks', 'documents']
+  const collected = textFields.flatMap((key) => {
+    const field = record[key]
+    return typeof field === 'string' && field.trim() ? [field.trim()] : []
+  })
+  for (const key of [...collectionFields, ...textFields]) {
+    const field = record[key]
+    if (field && typeof field === 'object') collected.push(...collectText(field))
   }
-  for (const key of ['text', 'content', 'fact', 'memory', 'statement']) {
-    if (typeof record[key] === 'string' && record[key]) return [record[key] as string]
-  }
-  return []
+  return collected
 }
 
-export function extractMemories(payload: unknown) {
-  return [...new Set(collectText(payload))].slice(0, 30)
+export function extractMemories(payload: unknown, limit = 30) {
+  return [...new Set(collectText(payload))].slice(0, Math.max(1, Math.min(limit, 100)))
 }
 
 export function extractReflection(payload: unknown): string {
