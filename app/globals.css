@@ -152,6 +152,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .post-copy i { padding: 0 3px; font-style: normal; }
 .post-performance { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .post-performance strong { font-family: 'DM Mono', monospace; font-size: 12px; }
+.analysis-history-item { padding: 12px 0; border-top: 1px solid rgba(41,54,74,.6); }
+.analysis-history-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--foreground); font-size: 12px; }
+.analysis-history-meta time { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.analysis-history-item p { display: -webkit-box; overflow: hidden; margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 
 .two-column-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 18px; }
 .two-column-layout > .panel { min-height: 100%; }
@@ -288,6 +292,7 @@ textarea.form-control { min-height: 165px; resize: vertical; line-height: 1.5; }
 .confirm-row .button-secondary, .confirm-row .button-danger { min-height: 35px; padding: 0 10px; font-size: 11px; }
 .provider-settings-panel { grid-column: 1 / -1; }
 .credential-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.credential-error { margin: 12px 0 0; color: #ff9ba4; font-size: 12px; }
 .credential-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-deep); }
 .credential-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .credential-heading h3 { margin: 5px 0 0; font-size: 16px; }

@@ -1,7 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
-import { db } from '@/lib/db'
-import { providerApiKeys, type Provider } from '@/lib/db/schema'
+import { pool } from '@/lib/db'
+
+export type Provider = 'groq' | 'hindsight'
+type ProviderKeyMap = Record<Provider, string[]>
 
 function encryptionKey() {
   const secret = process.env.BETTER_AUTH_SECRET
@@ -28,22 +29,21 @@ function decryptKeys(value: string) {
     ]).toString('utf8')
     const parsed: unknown = JSON.parse(decrypted)
     return Array.isArray(parsed)
-      ? parsed.filter((key): key is string => typeof key === 'string' && key.length > 0 && key.length <= 512).slice(0, 10)
+      ? [...new Set(parsed.filter((key): key is string => typeof key === 'string' && key.length > 0 && key.length <= 512))].slice(0, 10)
       : []
   } catch {
     return []
   }
 }
 
-export async function getProviderKeysForUser(userId: string) {
-  const rows = await db.select({ provider: providerApiKeys.provider, encryptedKeys: providerApiKeys.encryptedKeys })
-    .from(providerApiKeys)
-    .where(eq(providerApiKeys.userId, userId))
-  const keys: Record<Provider, string[]> = { groq: [], hindsight: [] }
-  for (const row of rows) {
-    if (row.provider === 'groq' || row.provider === 'hindsight') {
-      keys[row.provider] = decryptKeys(row.encryptedKeys)
-    }
+export async function getProviderKeysForUser(userId: string): Promise<ProviderKeyMap> {
+  const result = await pool.query<{ provider: string; encryptedKeys: string }>(
+    'SELECT provider, "encryptedKeys" FROM public.provider_api_keys WHERE "userId" = $1',
+    [userId],
+  )
+  const keys: ProviderKeyMap = { groq: [], hindsight: [] }
+  for (const row of result.rows) {
+    if (row.provider === 'groq' || row.provider === 'hindsight') keys[row.provider] = decryptKeys(row.encryptedKeys)
   }
   return keys
 }
@@ -54,16 +54,15 @@ export async function getProviderKeyCounts(userId: string) {
 }
 
 export async function saveProviderKeys(userId: string, provider: Provider, keys: string[]) {
-  const encryptedKeys = encryptKeys(keys)
-  await db.insert(providerApiKeys).values({ userId, provider, encryptedKeys })
-    .onConflictDoUpdate({
-      target: [providerApiKeys.userId, providerApiKeys.provider],
-      set: { encryptedKeys, updatedAt: new Date() },
-    })
+  await pool.query(
+    `INSERT INTO public.provider_api_keys ("userId", provider, "encryptedKeys", "updatedAt")
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT ("userId", provider) DO UPDATE
+     SET "encryptedKeys" = EXCLUDED."encryptedKeys", "updatedAt" = now()`,
+    [userId, provider, encryptKeys(keys)],
+  )
 }
 
 export async function deleteProviderKeys(userId: string, provider: Provider) {
-  await db.delete(providerApiKeys).where(and(eq(providerApiKeys.userId, userId), eq(providerApiKeys.provider, provider)))
+  await pool.query('DELETE FROM public.provider_api_keys WHERE "userId" = $1 AND provider = $2', [userId, provider])
 }
-
-export type { Provider }

@@ -3,6 +3,7 @@ import { generateText } from 'ai'
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
+import { getProviderKeysForUser } from '@/lib/provider-api-keys'
 import { formatMetric, formatRate, predictEngagement, predictionDisclaimer, predictionMethod, trainEngagementModel, summarizeTrainingForMemory } from '@/lib/engagement-model'
 import {
   extractMemories,
@@ -157,8 +158,14 @@ export async function POST(request: Request) {
 
   const question = typeof input.question === 'string' ? input.question.trim().slice(0, 4_000) : ''
   const providerKeys = getProviderKeys(input.providerKeys)
-  const groqApiKey = providerKeys.groq || process.env.GROQ_API_KEY
-  const hindsightApiKeys = getHindsightApiKeys(providerKeys)
+  let storedKeys: { groq: string[]; hindsight: string[] }
+  try {
+    storedKeys = await getProviderKeysForUser(session.user.id)
+  } catch {
+    return NextResponse.json({ error: 'Saved provider keys could not be loaded. Try again.' }, { status: 503 })
+  }
+  const groqApiKey = providerKeys.groq || storedKeys.groq[0] || process.env.GROQ_API_KEY
+  const hindsightApiKeys = [...new Set([...getHindsightApiKeys(providerKeys), ...storedKeys.hindsight])]
   if (input.action !== 'retain' && input.action !== 'memory-list' && input.action !== 'train' && !question) {
     return NextResponse.json({ error: 'Add a question or content brief first.' }, { status: 400 })
   }

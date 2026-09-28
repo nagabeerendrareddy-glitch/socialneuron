@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { SignOutButton } from '@/components/sign-out-button'
 import {
@@ -22,6 +22,8 @@ type Provider = 'groq' | 'hindsight'
 type ProviderKeys = { groq?: string; hindsight?: string[] }
 type ProviderKeyRing = Record<Provider, string[]>
 type ProviderKeyCursor = Record<Provider, number>
+type AnalysisRecord = { id: string; kind: 'post' | 'comments'; title: string; input: string; result: string; createdAt: string }
+type WorkspaceSnapshot = { workspace?: Record<string, unknown>; providerKeyCounts?: Record<Provider, number>; providerKeySaved?: Record<Provider, boolean> }
 
 let sessionProviderKeys: ProviderKeyRing = { groq: [], hindsight: [] }
 let providerKeyCursor: ProviderKeyCursor = { groq: 0, hindsight: 0 }
@@ -33,10 +35,6 @@ function setSessionProviderKeys(provider: Provider, keys: string[]) {
 
 function clearSessionProviderKey(provider: Provider) {
   setSessionProviderKeys(provider, [])
-}
-
-function getSessionProviderKeyCount(provider: Provider) {
-  return sessionProviderKeys[provider].length
 }
 
 function currentProviderKeys(providers: Provider[]): ProviderKeys {
@@ -180,8 +178,20 @@ export default function SeaDashboard({ userName }: { userName: string }) {
   const [toast, setToast] = useState('')
   const [pending, setPending] = useState<AgentAction | null>(null)
   const [recommendation, setRecommendation] = useState('')
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisRecord[]>([])
+  const [providerKeyCounts, setProviderKeyCounts] = useState<Record<Provider, number>>({ groq: 0, hindsight: 0 })
   const [activeProviderKeys, setActiveProviderKeys] = useState<Record<Provider, boolean>>({ groq: false, hindsight: false })
   const fileRef = useRef<HTMLInputElement>(null)
+  const workspaceReady = useRef(false)
+  const workspaceInitialized = useRef(false)
+  const workspaceSaveQueue = useRef<Promise<void>>(Promise.resolve())
+  const analysisHistoryRef = useRef<AnalysisRecord[]>([])
+  const { data: workspaceData, error: workspaceLoadError } = useSWR<WorkspaceSnapshot, Error>('social-neuron-workspace', async () => {
+    const response = await fetch('/api/workspace')
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error || 'Unable to load saved workspace data.')
+    return result as WorkspaceSnapshot
+  }, { revalidateOnFocus: false, shouldRetryOnError: false })
   const {
     data: hindsightMemoryData,
     error: hindsightMemoryError,
@@ -193,6 +203,33 @@ export default function SeaDashboard({ userName }: { userName: string }) {
   })
   const storedMemories = hindsightMemoryData?.memories ?? []
   const learnedMemories = useMemo(() => [...new Set([...storedMemories, ...memories])], [storedMemories, memories])
+
+  useEffect(() => {
+    if (!workspaceData || workspaceInitialized.current) return
+    const saved = workspaceData.workspace ?? {}
+    if (Array.isArray(saved.posts)) setPosts(saved.posts as Post[])
+    if (Array.isArray(saved.comments)) setComments(saved.comments as string[])
+    if (typeof saved.analysis === 'string') setAnalysis(saved.analysis)
+    if (Array.isArray(saved.commentAnalysis)) setCommentAnalysis(saved.commentAnalysis as string[])
+    if (typeof saved.commentInsight === 'string') setCommentInsight(saved.commentInsight)
+    if (typeof saved.draft === 'string') setDraft(saved.draft)
+    if (Array.isArray(saved.savedDrafts)) setSavedDrafts(saved.savedDrafts as string[])
+    if (typeof saved.recommendation === 'string') setRecommendation(saved.recommendation)
+    if (Array.isArray(saved.chat)) setChat(saved.chat as Message[])
+    if (Array.isArray(saved.connected)) setConnected(saved.connected as string[])
+    if (Array.isArray(saved.analysisHistory)) {
+      analysisHistoryRef.current = saved.analysisHistory as AnalysisRecord[]
+      setAnalysisHistory(analysisHistoryRef.current)
+    }
+    setProviderKeyCounts({ groq: Number(workspaceData.providerKeyCounts?.groq) || 0, hindsight: Number(workspaceData.providerKeyCounts?.hindsight) || 0 })
+    setActiveProviderKeys({ groq: Boolean(workspaceData.providerKeySaved?.groq), hindsight: Boolean(workspaceData.providerKeySaved?.hindsight) })
+    workspaceInitialized.current = true
+    workspaceReady.current = true
+  }, [workspaceData])
+
+  useEffect(() => {
+    if (workspaceLoadError) notify('Saved workspace could not be loaded. Refresh and try again.')
+  }, [workspaceLoadError])
 
   const topics = useMemo(() => {
     const result = new Map<string, { count: number; total: number; likes: number }>()
@@ -248,6 +285,30 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     setToast(message)
     window.setTimeout(() => setToast(''), 2600)
   }
+  async function persistWorkspace(patch: Record<string, unknown>) {
+    if (!workspaceReady.current) return
+    const response = await fetch('/api/workspace', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patch }),
+    })
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}))
+      throw new Error(result.error || 'Workspace changes could not be saved.')
+    }
+  }
+  function saveWorkspaceInBackground(patch: Record<string, unknown>) {
+    workspaceSaveQueue.current = workspaceSaveQueue.current
+      .catch(() => undefined)
+      .then(() => persistWorkspace(patch))
+      .catch(() => notify('Could not save the latest workspace changes.'))
+  }
+  function appendAnalysisRecord(record: AnalysisRecord, patch: Record<string, unknown>) {
+    const next = [record, ...analysisHistoryRef.current].slice(0, 100)
+    analysisHistoryRef.current = next
+    setAnalysisHistory(next)
+    saveWorkspaceInBackground({ ...patch, analysisHistory: next })
+  }
   function currentContext() {
     return { posts: posts.slice(0, 50).map((post) => ({ ...post, hour: post.hour >= 0 ? post.hour : null })), comments: comments.slice(0, 30), audience: { topTopics: topics.slice(0, 6), positiveCommentRate: positiveRate, bestPostingWindow: bestTime } }
   }
@@ -292,7 +353,11 @@ export default function SeaDashboard({ userName }: { userName: string }) {
       return { id: `csv-${Date.now()}-${index}`, date, platform: String(row.platform), content: String(row.content), topic: String(row.topic), type: String(row.type), likes: Number(row.likes) || 0, comments: Number(row.comments) || 0, shares: Number(row.shares) || 0, saves: Number(row.saves) || 0, hour, day }
     })
     if (!imported.length) { setCsvStatus('No valid rows found in the CSV.'); return }
-    setPosts((current) => demoDatasetActive ? imported : [...imported, ...current]); if (demoDatasetActive) setComments([]); setDemoDatasetActive(false); setDemoResults(null); setDemoError(''); setHumanReviewApproved(false); log(`Imported ${imported.length} posts from CSV`)
+    const nextPosts = demoDatasetActive ? imported : [...imported, ...posts]
+    setPosts(nextPosts)
+    saveWorkspaceInBackground({ posts: nextPosts, ...(demoDatasetActive ? { comments: [] } : {}) })
+    if (demoDatasetActive) { setComments([]); setCommentAnalysis(null); setCommentInsight('') }
+    setDemoDatasetActive(false); setDemoResults(null); setDemoError(''); setHumanReviewApproved(false); log(`Imported ${imported.length} posts from CSV`)
     void retainLearning(`Imported historical social post engagement data (${imported.length} rows): ${JSON.stringify(imported.slice(0, 40).map(({ date, platform, content, topic, type, likes, comments, shares, saves, hour }) => ({ date, platform, content: content.slice(0, 500), topic, format: type, likes, comments, shares, saves, hour })))}. Analyze the provided records for audience interests, relative performance by topic and format, posting-time patterns, and notable engagement differences.`, `CSV engagement history (${imported.length} posts)`)
     setCsvStatus(`Successfully imported ${imported.length} posts.`); notify(`Imported ${imported.length} posts`)
     window.setTimeout(() => { setCsvOpen(false); setCsvStatus(''); setCsv('') }, 1000)
@@ -323,7 +388,10 @@ export default function SeaDashboard({ userName }: { userName: string }) {
       const fields = (result.text ?? '').split('|').map((field) => field.trim())
       if (fields.length !== 5 || fields.some((field) => !field)) throw new Error('The AI response could not be displayed. Please run the analysis again.')
       setMemories(result.memories ?? [])
-      setAnalysis(fields.join('|'))
+      const analysisResult = fields.join('|')
+      const record: AnalysisRecord = { id: crypto.randomUUID(), kind: 'post', title: topic, input: content, result: analysisResult, createdAt: new Date().toISOString() }
+      setAnalysis(analysisResult)
+      appendAnalysisRecord(record, { analysis: analysisResult })
       if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
       else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0 })
       log('Groq LLM · analyzed post using available evidence')
@@ -338,7 +406,7 @@ export default function SeaDashboard({ userName }: { userName: string }) {
   async function analyzeComments(lines: string[]) {
     const cleaned = lines.map((line) => line.trim()).filter(Boolean).slice(0, 120)
     if (!cleaned.length) { notify('Add a few comments to analyze first'); return }
-    setCommentAnalysis(cleaned); setComments(cleaned); if (demoDatasetActive) setPosts([]); setDemoDatasetActive(false); setDemoResults(null); setDemoError(''); setHumanReviewApproved(false); setCommentInsight(''); setPending('comment-analysis')
+    setCommentAnalysis(cleaned); setComments(cleaned); saveWorkspaceInBackground({ comments: cleaned }); if (demoDatasetActive) setPosts([]); setDemoDatasetActive(false); setDemoResults(null); setDemoError(''); setHumanReviewApproved(false); setCommentInsight(''); setPending('comment-analysis')
     log('Groq LLM · analyzing comments with available audience evidence', 'pending')
     try {
       const result = await requestAgent('comment-analysis', {
@@ -346,7 +414,11 @@ export default function SeaDashboard({ userName }: { userName: string }) {
         context: { ...currentContext(), comments: cleaned },
       })
       setMemories(result.memories ?? [])
-      setCommentInsight(result.text ?? '')
+      const insight = result.text ?? ''
+      const commentResult = cleaned.join('\n')
+      const record: AnalysisRecord = { id: crypto.randomUUID(), kind: 'comments', title: `${cleaned.length} audience comments`, input: commentResult.slice(0, 4_000), result: insight, createdAt: new Date().toISOString() }
+      setCommentInsight(insight)
+      appendAnalysisRecord(record, { comments: cleaned, commentAnalysis: cleaned, commentInsight: insight })
       if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
       else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`)
       log('Groq LLM · analyzed audience comments using available evidence')
@@ -374,7 +446,9 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     log('Groq LLM · generating content with available audience evidence', 'pending')
     try {
       const result = await requestAgent('content', { question: brief, context: currentContext() })
-      setDraft(result.text ?? '')
+      const generatedDraft = result.text ?? ''
+      setDraft(generatedDraft)
+      saveWorkspaceInBackground({ draft: generatedDraft })
       setMemories(result.memories ?? [])
       if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
       else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
@@ -387,13 +461,15 @@ export default function SeaDashboard({ userName }: { userName: string }) {
       setPending(null)
     }
   }
-  function saveDraft() { if (!draft) return; setSavedDrafts((items) => [draft, ...items]); notify('Draft saved to your library'); log('Saved generated content') }
+  function saveDraft() { if (!draft) return; const next = [draft, ...savedDrafts].slice(0, 100); setSavedDrafts(next); saveWorkspaceInBackground({ savedDrafts: next }); notify('Draft saved to your library'); log('Saved generated content') }
   async function sendChat(question = chatInput) {
     const query = question.trim()
     if (!query || pending) return
     const action = chatMode === 'prediction' ? 'prediction-chat' : 'chat'
     setChatInput('')
-    setChat((items) => [...items, { role: 'user', text: query }])
+    const pendingChat = [...chat, { role: 'user' as const, text: query }].slice(-150)
+    setChat(pendingChat)
+    saveWorkspaceInBackground({ chat: pendingChat })
     setPending(action)
     const activityId = log(chatMode === 'prediction' ? 'Dataset predictor · estimating engagement from 5,000 synthetic examples' : 'Groq LLM · responding with available audience evidence', 'pending')
     try {
@@ -405,11 +481,15 @@ export default function SeaDashboard({ userName }: { userName: string }) {
         if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
       }
       updateActivity(activityId, chatMode === 'prediction' ? 'Dataset predictor · returned a cohort-based estimate' : 'Groq LLM · generated a response', 'success', { details: result.text })
-      setChat((items) => [...items, { role: 'agent', text: result.text ?? '' }])
+      const finishedChat = [...chat, { role: 'user' as const, text: query }, { role: 'agent' as const, text: result.text ?? '' }].slice(-150)
+      setChat(finishedChat)
+      saveWorkspaceInBackground({ chat: finishedChat })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The agent request failed. Try again.'
       updateActivity(activityId, `Agent request failed · ${message}`, 'error')
-      setChat((items) => [...items, { role: 'agent', text: message }])
+      const failedChat = [...chat, { role: 'user' as const, text: query }, { role: 'agent' as const, text: message }].slice(-150)
+      setChat(failedChat)
+      saveWorkspaceInBackground({ chat: failedChat })
     } finally {
       setPending(null)
     }
@@ -420,13 +500,17 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     log('Local predictor · summarizing the 5,000 synthetic training examples', 'pending')
     try {
       const result = await requestAgent('train')
-      setChat((items) => [...items, { role: 'agent', text: result.text ?? 'Training data is ready.' }])
+      const trainedChat = [...chat, { role: 'agent' as const, text: result.text ?? 'Training data is ready.' }].slice(-150)
+      setChat(trainedChat)
+      saveWorkspaceInBackground({ chat: trainedChat })
       log('Local predictor · training summary ready', 'success', { details: result.text })
       if (result.hindsightWarning) log(`Hindsight retention unavailable · ${result.hindsightWarning}`, 'error')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Training data could not be loaded.'
       log(`Predictor training failed · ${message}`, 'error')
-      setChat((items) => [...items, { role: 'agent', text: message }])
+      const failedTrainingChat = [...chat, { role: 'agent' as const, text: message }].slice(-150)
+      setChat(failedTrainingChat)
+      saveWorkspaceInBackground({ chat: failedTrainingChat })
     } finally {
       setPending(null)
     }
@@ -438,7 +522,9 @@ export default function SeaDashboard({ userName }: { userName: string }) {
     const activityId = log('Groq LLM · generating a recommendation with available audience evidence', 'pending')
     try {
       const result = await requestAgent('recommendation', { question: 'What should I post next?', context: currentContext() })
-      setRecommendation(result.text ?? '')
+      const recommendationText = result.text ?? ''
+      setRecommendation(recommendationText)
+      saveWorkspaceInBackground({ recommendation: recommendationText })
       setMemories(result.memories ?? [])
       if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
       else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
@@ -519,8 +605,34 @@ export default function SeaDashboard({ userName }: { userName: string }) {
       setPending(null)
     }
   }
+  function updateConnected(value: React.SetStateAction<string[]>) {
+    const next = typeof value === 'function' ? value(connected) : value
+    setConnected(next)
+    saveWorkspaceInBackground({ connected: next })
+  }
+  async function saveProviderKeys(provider: Provider, keys: string[]) {
+    const response = await fetch('/api/workspace', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, keys }) })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error || 'API keys could not be saved.')
+    setSessionProviderKeys(provider, keys)
+    setProviderKeyCounts((counts) => ({ ...counts, [provider]: keys.length }))
+    setActiveProviderKeys((current) => ({ ...current, [provider]: keys.length > 0 }))
+    if (provider === 'hindsight') void refreshHindsightMemories()
+    notify(`${keys.length} ${provider === 'groq' ? 'Groq' : 'Hindsight'} key${keys.length === 1 ? '' : 's'} saved securely`)
+  }
+  async function resetProviderKey(provider: Provider) {
+    const response = await fetch('/api/workspace', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider }) })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error || 'Saved API keys could not be removed.')
+    clearSessionProviderKey(provider)
+    setProviderKeyCounts((counts) => ({ ...counts, [provider]: 0 }))
+    setActiveProviderKeys((current) => ({ ...current, [provider]: false }))
+    notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`)
+  }
   function clearData() {
-    setPosts([]); setComments([]); setMemories([]); setChat([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setRecommendation(''); setDemoResults(null); setDemoError(''); setDemoDatasetActive(false); setHumanReviewApproved(false); log('Workspace session cleared · Hindsight long-term memories retained') ; notify('Workspace session cleared')
+    setPosts([]); setComments([]); setMemories([]); setChat([]); setConnected([]); setAnalysis(null); setCommentAnalysis(null); setCommentInsight(''); setDraft(''); setSavedDrafts([]); setRecommendation(''); analysisHistoryRef.current = []; setAnalysisHistory([]); setDemoResults(null); setDemoError(''); setDemoDatasetActive(false); setHumanReviewApproved(false)
+    saveWorkspaceInBackground({ posts: [], comments: [], chat: [], connected: [], analysis: null, commentAnalysis: null, commentInsight: '', draft: '', savedDrafts: [], recommendation: '', analysisHistory: [] })
+    log('Workspace data cleared · Hindsight long-term memories retained'); notify('Workspace data cleared')
   }
 
   const hasActualAudienceData = posts.some((post) => !post.id.startsWith('demo-')) || (!demoDatasetActive && comments.length > 0)
@@ -549,7 +661,7 @@ export default function SeaDashboard({ userName }: { userName: string }) {
         </header>
 
         <main className="sea-main" key={page}>
-          {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} demoResults={demoResults} demoDatasetActive={demoDatasetActive} demoRunning={pending === 'learning-demo-before'} onRunLearningDemo={runLearningDemo} onDemo={loadDemo} onNavigate={setPage} />}
+          {page === 'dashboard' && <Dashboard posts={posts} comments={comments} topics={topics} positiveRate={positiveRate} bestTime={bestTime} demoResults={demoResults} demoDatasetActive={demoDatasetActive} demoRunning={pending === 'learning-demo-before'} analysisHistory={analysisHistory} onRunLearningDemo={runLearningDemo} onDemo={loadDemo} onNavigate={setPage} />}
           {page === 'post' && <PostAnalyzer analysis={analysis} analysisLoading={pending === 'analysis'} onAnalyze={analyzePost} />}
           {page === 'comments' && <CommentAnalyzer comments={comments} analysis={commentAnalysis} insight={commentInsight} isAnalyzing={pending === 'comment-analysis'} memories={memories} onAnalyze={analyzeComments} />}
           {page === 'content' && <ContentGenerator draft={draft} saved={savedDrafts} showSaved={showSaved} isGenerating={pending === 'content'} memories={memories} onToggleSaved={() => setShowSaved(!showSaved)} onGenerate={generateContent} onSave={saveDraft} onCopy={() => { void navigator.clipboard?.writeText(draft); notify('Draft copied to clipboard') }} />}
@@ -557,7 +669,7 @@ export default function SeaDashboard({ userName }: { userName: string }) {
           {page === 'recs' && <Recommendations recommendation={recommendation} isGenerating={pending === 'recommendation'} onGenerate={generateRecommendation} />}
           {page === 'social' && <SocialAccounts count={posts.length} connected={connected} setConnected={setConnected} onCsv={() => setCsvOpen(true)} onDemo={loadDemo} />}
           {page === 'chat' && <AgentChat messages={chat} input={chatInput} setInput={setChatInput} mode={chatMode} onModeChange={setChatMode} isSending={pending === 'chat' || pending === 'prediction-chat'} isTraining={pending === 'train'} onSend={sendChat} onTrain={trainPredictor} />}
-          {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={learnedMemories.length} activeProviderKeys={activeProviderKeys} activeProviderKeyCounts={{ groq: getSessionProviderKeyCount('groq'), hindsight: getSessionProviderKeyCount('hindsight') }} onSaveProviderKeys={(provider, keys) => { setSessionProviderKeys(provider, keys); setActiveProviderKeys((current) => ({ ...current, [provider]: keys.length > 0 })); if (provider === 'hindsight') void refreshHindsightMemories(); notify(`${keys.length} ${provider === 'groq' ? 'Groq' : 'Hindsight'} key${keys.length === 1 ? '' : 's'} added to this session rotation`) }} onResetProviderKey={(provider) => { clearSessionProviderKey(provider); setActiveProviderKeys((current) => ({ ...current, [provider]: false })); notify(`Using the deployment ${provider === 'groq' ? 'Groq' : 'Hindsight'} key`) }} onClear={clearData} />}
+          {page === 'settings' && <SettingsPage count={posts.length} comments={comments.length} memories={learnedMemories.length} activeProviderKeys={activeProviderKeys} activeProviderKeyCounts={providerKeyCounts} onSaveProviderKeys={saveProviderKeys} onResetProviderKey={resetProviderKey} onClear={clearData} />}
         </main>
       </div>
 
@@ -646,7 +758,7 @@ function Eyebrow({ children }: { children: React.ReactNode }) { return <div clas
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) { return <section className={`panel ${className}`}>{children}</section> }
 function EmptyState({ icon: Icon, title, children }: { icon: typeof Bot; title: string; children: React.ReactNode }) { return <div className="empty-state"><Icon /><strong>{title}</strong><p>{children}</p></div> }
 
-function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResults, demoDatasetActive, demoRunning, onRunLearningDemo, onDemo, onNavigate }: { posts: Post[]; comments: string[]; topics: { topic: string; count: number; total: number; rate: number }[]; positiveRate: number; bestTime: string; demoResults: DemoResults | null; demoDatasetActive: boolean; demoRunning: boolean; onRunLearningDemo: () => void; onDemo: () => void; onNavigate: (page: PageId) => void }) {
+function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResults, demoDatasetActive, demoRunning, analysisHistory, onRunLearningDemo, onDemo, onNavigate }: { posts: Post[]; comments: string[]; topics: { topic: string; count: number; total: number; rate: number }[]; positiveRate: number; bestTime: string; demoResults: DemoResults | null; demoDatasetActive: boolean; demoRunning: boolean; analysisHistory: AnalysisRecord[]; onRunLearningDemo: () => void; onDemo: () => void; onNavigate: (page: PageId) => void }) {
   const totalEngagement = posts.reduce((sum, post) => sum + post.likes + post.comments + post.shares + post.saves, 0)
   const avgRate = posts.length ? (posts.reduce((sum, post) => sum + post.likes, 0) / posts.length / 100).toFixed(2) : '0.00'
   return <>
@@ -672,6 +784,7 @@ function Dashboard({ posts, comments, topics, positiveRate, bestTime, demoResult
       <Panel className="recent-panel"><div className="panel-heading"><div><Eyebrow>RECENT POSTS</Eyebrow><h2>What you’ve been sharing</h2></div><button className="text-action" onClick={() => onNavigate('post')}>Analyze a post <ArrowUpRight /></button></div>
         {posts.slice(0, 4).map((post) => <div className="post-row" key={post.id}><div className="platform-avatar">{post.platform === 'LinkedIn' ? 'in' : post.platform === 'Instagram' ? 'ig' : '𝕏'}</div><div className="post-copy"><strong>{post.content}</strong><span>{post.topic} <i>·</i> {post.platform}</span></div><div className="post-performance"><strong>{post.likes.toLocaleString()}</strong><span>likes</span></div></div>)}
       </Panel>
+      {!!analysisHistory.length && <Panel className="recent-panel"><div className="panel-heading"><div><Eyebrow>ANALYSIS HISTORY</Eyebrow><h2>Saved insights</h2></div><button className="text-action" onClick={() => onNavigate(analysisHistory[0]?.kind === 'comments' ? 'comments' : 'post')}>Open analyzer <ArrowUpRight /></button></div>{analysisHistory.slice(0, 4).map((item) => <article className="analysis-history-item" key={item.id}><div className="analysis-history-meta"><strong>{item.kind === 'comments' ? 'Comment analysis' : 'Post analysis'} · {item.title}</strong><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleDateString()}</time></div><p>{item.result}</p></article>)}</Panel>}
     </div>
   </>
 }
@@ -801,16 +914,26 @@ function AgentChat({ messages, input, setInput, mode, onModeChange, isSending, i
   </section></>
 }
 
-function SettingsPage({ count, comments, memories, activeProviderKeys, activeProviderKeyCounts, onSaveProviderKeys, onResetProviderKey, onClear }: { count: number; comments: number; memories: number; activeProviderKeys: Record<Provider, boolean>; activeProviderKeyCounts: Record<Provider, number>; onSaveProviderKeys: (provider: Provider, keys: string[]) => void; onResetProviderKey: (provider: Provider) => void; onClear: () => void }) {
+function SettingsPage({ count, comments, memories, activeProviderKeys, activeProviderKeyCounts, onSaveProviderKeys, onResetProviderKey, onClear }: { count: number; comments: number; memories: number; activeProviderKeys: Record<Provider, boolean>; activeProviderKeyCounts: Record<Provider, number>; onSaveProviderKeys: (provider: Provider, keys: string[]) => Promise<void>; onResetProviderKey: (provider: Provider) => Promise<void>; onClear: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [groqKeys, setGroqKeys] = useState(['', '', '', '', ''])
   const [hindsightKeys, setHindsightKeys] = useState(['', '', '', '', ''])
-  function saveKeys(event: React.FormEvent<HTMLFormElement>, provider: Provider, values: string[], clear: (values: string[]) => void) {
+  const [savingProvider, setSavingProvider] = useState<Provider | null>(null)
+  const [keyError, setKeyError] = useState('')
+  async function saveKeys(event: React.FormEvent<HTMLFormElement>, provider: Provider, values: string[], clear: (values: string[]) => void) {
     event.preventDefault()
     const keys = [...new Set(values.map((key) => key.trim()).filter(Boolean))]
     if (!keys.length) return
-    onSaveProviderKeys(provider, keys)
-    clear(['', '', ''])
+    setSavingProvider(provider); setKeyError('')
+    try { await onSaveProviderKeys(provider, keys); clear(['', '', '']) }
+    catch (error) { setKeyError(error instanceof Error ? error.message : 'API keys could not be saved.') }
+    finally { setSavingProvider(null) }
+  }
+  async function resetKeys(provider: Provider) {
+    setSavingProvider(provider); setKeyError('')
+    try { await onResetProviderKey(provider) }
+    catch (error) { setKeyError(error instanceof Error ? error.message : 'Saved API keys could not be removed.') }
+    finally { setSavingProvider(null) }
   }
   function updateKey(values: string[], setValues: (values: string[]) => void, index: number, value: string) {
     setValues(values.map((key, keyIndex) => keyIndex === index ? value : key))
@@ -827,13 +950,13 @@ function SettingsPage({ count, comments, memories, activeProviderKeys, activePro
     const inputPrefix = isGroq ? 'groq' : 'hindsight'
     const isActive = activeProviderKeys[provider]
     return <form className="credential-card" onSubmit={(event) => saveKeys(event, provider, values, setValues)} key={provider}>
-      <div className="credential-heading"><div><Eyebrow>{isGroq ? 'LANGUAGE MODEL' : 'LONG-TERM MEMORY'}</Eyebrow><h3>{providerName}</h3></div><span className={`credential-status ${isActive ? 'is-custom' : ''}`}>{isActive ? `Rotating ${activeProviderKeyCounts[provider]} session keys` : 'Deployment key'}</span></div>
+      <div className="credential-heading"><div><Eyebrow>{isGroq ? 'LANGUAGE MODEL' : 'LONG-TERM MEMORY'}</Eyebrow><h3>{providerName}</h3></div><span className={`credential-status ${isActive ? 'is-custom' : ''}`}>{isActive ? `Saved rotation · ${activeProviderKeyCounts[provider]} keys` : 'Deployment key'}</span></div>
       <div className="credential-key-list">{values.map((value, index) => <div className="credential-key-row" key={`${provider}-${index}`}><label className="field-label" htmlFor={`${inputPrefix}-api-key-${index}`}>{providerName} API key {index + 1}</label><div className="credential-key-input"><input id={`${inputPrefix}-api-key-${index}`} className="form-control" type="password" autoComplete="new-password" spellCheck={false} maxLength={512} value={value} onChange={(event) => updateKey(values, setValues, index, event.target.value)} placeholder={`Paste ${providerName} API key ${index + 1}`} />{values.length > 1 && <button className="key-slot-remove" type="button" aria-label={`Remove ${providerName} API key ${index + 1}`} onClick={() => removeKeySlot(values, setValues, index)}><X /></button>}</div></div>)}</div>
-      <div className="credential-actions"><button className="button-secondary" type="button" onClick={() => addKeySlot(values, setValues)} disabled={values.length >= 10}>Add another key</button><button className="button-primary" type="submit" disabled={!values.some((key) => key.trim())}>Save {providerName} rotation</button>{isActive && <button className="button-secondary" type="button" onClick={() => onResetProviderKey(provider)}>Use deployment key</button>}</div>
+      <div className="credential-actions"><button className="button-secondary" type="button" onClick={() => addKeySlot(values, setValues)} disabled={values.length >= 10}>Add another key</button><button className="button-primary" type="submit" disabled={!values.some((key) => key.trim()) || savingProvider !== null}>{savingProvider === provider ? 'Saving securely…' : `Save ${providerName} rotation`}</button>{isActive && <button className="button-secondary" type="button" disabled={savingProvider !== null} onClick={() => void resetKeys(provider)}>Remove saved keys</button>}</div>
     </form>
   }
-  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Add multiple Groq and Hindsight keys. Each task keeps its selected key for all related provider calls, then advances to the next key for the next task. Keys stay in this tab&apos;s memory only and are never saved to browser storage.</p><div className="credential-list">
+  return <><PageTitle>Settings</PageTitle><div className="settings-grid"><Panel className="provider-settings-panel"><Eyebrow>API CONNECTIONS</Eyebrow><h2>Provider API keys</h2><p className="muted">Save Groq and Hindsight key rotations once. Keys are encrypted before they are stored in your account; this tab keeps the active rotation in memory, and future sessions resolve saved keys on the server.</p>{keyError && <p className="credential-error" role="alert">{keyError}</p>}<div className="credential-list">
     {providerForm('groq', groqKeys, setGroqKeys)}
     {providerForm('hindsight', hindsightKeys, setHindsightKeys)}
-  </div><p className="credential-notice">Keys are sent to this app&apos;s server only when making provider requests. A task uses one starting key across its related calls so retain and recall stay on the same Hindsight account. On a credit, quota, or authentication error, Hindsight can try the remaining keys and then the deployment key. Rotation is session-only and resets when this tab reloads or closes.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your structured posts and comments live in this browser session. Hindsight Cloud stores long-term audience memories when you import or analyze data.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear posts, comments, and recalled results from this session. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
+  </div><p className="credential-notice">Saved keys are encrypted at rest with AES-256-GCM using the server secret. Provider calls resolve them on the server; removing a rotation falls back to the deployment key. Workspace analyses and imported records are private to your signed-in account.</p></Panel><Panel><Eyebrow>WORKSPACE</Eyebrow><h2>Tech Innovators Co.</h2><p className="muted">Your posts, comments, analyses, drafts, and conversations are saved to your signed-in workspace and restored when you return. Hindsight Cloud stores long-term audience memories separately.</p><div className="settings-metrics"><span>Posts<strong>{count}</strong></span><span>Comments<strong>{comments}</strong></span><span>Memories<strong>{memories}</strong></span></div></Panel><Panel><Eyebrow>MEMORY &amp; DATA</Eyebrow><h2>Manage workspace data</h2><p className="muted">Clear saved posts, comments, analyses, drafts, and conversations from your account. Hindsight Cloud memories are long-term and are not deleted here.</p>{confirmClear ? <div className="confirm-row"><span>Clear all workspace data? This cannot be undone.</span><button className="button-danger" onClick={onClear}>Confirm clear</button><button className="button-secondary" onClick={() => setConfirmClear(false)}>Cancel</button></div> : <button className="button-danger" onClick={() => setConfirmClear(true)}><X /> Clear all data</button>}</Panel></div></>
 }
