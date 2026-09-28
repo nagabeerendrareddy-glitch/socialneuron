@@ -23,7 +23,7 @@ async function request(
   path: string,
   body: JsonRecord,
   apiKeyOverride?: string | string[],
-  timeoutMs = 10_000,
+  timeoutMs = 30_000,
   method: 'GET' | 'POST' = 'POST',
 ) {
   const configuredKeys = Array.isArray(apiKeyOverride) ? apiKeyOverride : apiKeyOverride ? [apiKeyOverride] : []
@@ -74,10 +74,10 @@ async function request(
 export function retainInHindsight(items: string[], apiKey?: string | string[], documentId?: string) {
   return request('/memories', {
     items: items.map((content) => ({ content, ...(documentId ? { document_id: documentId } : {}) })),
-  }, apiKey)
+  }, apiKey, 45_000)
 }
 
-export function listMemoriesFromHindsight(documentId: string, apiKey?: string | string[], timeoutMs = 10_000) {
+export function listMemoriesFromHindsight(documentId: string, apiKey?: string | string[], timeoutMs = 12_000) {
   const query = new URLSearchParams({ document_id: documentId, limit: '100', offset: '0' })
   return request(`/memories/list?${query.toString()}`, {}, apiKey, timeoutMs, 'GET')
 }
@@ -86,7 +86,7 @@ export function recallFromHindsight(
   query: string,
   apiKey?: string | string[],
   budget: 'low' | 'mid' | 'high' = 'mid',
-  timeoutMs = 10_000,
+  timeoutMs = 30_000,
 ) {
   return request('/memories/recall', { query, max_tokens: 4096, budget }, apiKey, timeoutMs)
 }

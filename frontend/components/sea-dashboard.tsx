@@ -81,7 +81,7 @@ async function requestAgent(action: AgentAction, payload: Record<string, unknown
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, ...payload, providerKeys }),
-      signal: AbortSignal.timeout(55_000),
+      signal: AbortSignal.timeout(180_000),
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'TimeoutError') {

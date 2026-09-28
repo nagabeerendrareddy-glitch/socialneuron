@@ -183,11 +183,11 @@ export async function POST(request: Request) {
       }
 
       let memories: string[] = []
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        const payload = await listMemoriesFromHindsight(memoryMarker, hindsightApiKeys, 5_000)
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const payload = await listMemoriesFromHindsight(memoryMarker, hindsightApiKeys, 12_000)
         memories = extractMemories(payload, 100)
         if (memories.length) break
-        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)))
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 800))
       }
 
       if (!memories.length) {
