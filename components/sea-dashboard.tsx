@@ -403,7 +403,7 @@ export default function SeaDashboard() {
     if (pending) return
     setPending('recommendation')
     setRecommendation('')
-    log('Groq LLM · generating a recommendation with available audience evidence', 'pending')
+    const activityId = log('Groq LLM · generating a recommendation with available audience evidence', 'pending')
     try {
       const result = await requestAgent('recommendation', { question: 'What should I post next?', context: currentContext() })
       setRecommendation(result.text ?? '')
@@ -411,11 +411,11 @@ export default function SeaDashboard() {
       if (result.hindsightWarning) log(`Hindsight unavailable · ${result.hindsightWarning}`, 'error')
       else log(`Hindsight RECALL · ${result.memories?.length ?? 0} memories retrieved`, 'success', { memoryCount: result.memories?.length ?? 0, details: result.memories?.slice(0, 3).join(' · ') || 'No relevant long-term memories were returned.' })
       if (result.reflected) log('Hindsight REFLECT · synthesized historical audience experience', 'success', { details: result.reflection || 'Hindsight reflection completed.' })
-      log('Groq LLM · generated a recommendation using available evidence')
+      updateActivity(activityId, 'Groq LLM · generated a recommendation using available evidence', 'success', { details: result.text })
       notify(result.hindsightWarning ? 'Recommendation generated; Hindsight memory is unavailable' : 'Recommendation generated')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Recommendation generation failed. Try again.'
-      log(`Recommendation failed · ${message}`, 'error')
+      updateActivity(activityId, `Groq LLM · recommendation failed · ${message}`, 'error')
       notify(message)
     } finally {
       setPending(null)
