@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
-import { pool } from '@/lib/db'
+import { pool } from '@/backend/lib/db'
 
 export type Provider = 'groq' | 'hindsight'
 type ProviderKeyMap = Record<Provider, string[]>

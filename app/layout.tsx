@@ -1,6 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import './globals.css'
+import '../frontend/styles/globals.css'
 
 export const metadata: Metadata = {
   title: 'Social Neuron — Audience Intelligence',

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
-import { SignOutButton } from '@/components/sign-out-button'
+import { SignOutButton } from '@/frontend/components/sign-out-button'
 import {
   ArrowDownToLine, ArrowRight, ArrowUpRight, Bot, Brain, BriefcaseBusiness,
   Check, ChevronDown, ChevronUp, CircleHelp, FileSearch, FlaskConical, Gauge,

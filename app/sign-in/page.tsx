@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { AuthForm } from '@/components/auth-form'
-import { auth } from '@/lib/auth'
-import { AuthPageFrame } from '@/components/auth-page-frame'
+import { AuthForm } from '@/frontend/components/auth-form'
+import { auth } from '@/backend/lib/auth'
+import { AuthPageFrame } from '@/frontend/components/auth-page-frame'
 
 export const metadata: Metadata = {
   title: 'Sign in to Social Neuron',

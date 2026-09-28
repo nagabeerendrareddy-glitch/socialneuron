@@ -1,7 +1,7 @@
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import SeaDashboard from '@/components/sea-dashboard'
-import { auth } from '@/lib/auth'
+import SeaDashboard from '@/frontend/components/sea-dashboard'
+import { auth } from '@/backend/lib/auth'
 
 export default async function Page() {
   const session = await auth.api.getSession({ headers: await headers() })
